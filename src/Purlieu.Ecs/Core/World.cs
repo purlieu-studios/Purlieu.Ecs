@@ -45,7 +45,11 @@ public sealed class World
             id = _freeIds.Dequeue();
             var oldRecord = _entities[(int)id - 1];
             version = oldRecord.Version + 1;
-            _entities[(int)id - 1] = new EntityRecord(version, 0, -1);
+            
+            // Add reused entity to empty archetype
+            var emptyArchetype = _idToArchetype[0];
+            var row = emptyArchetype.AddEntity(new Entity(id, version));
+            _entities[(int)id - 1] = new EntityRecord(version, 0, row);
         }
         else
         {
@@ -58,7 +62,10 @@ public sealed class World
                 Array.Resize(ref _entities, _entityCapacity);
             }
             
-            _entities[(int)id - 1] = new EntityRecord(version, 0, -1);
+            // Add entity to empty archetype
+            var emptyArchetype = _idToArchetype[0];
+            var row = emptyArchetype.AddEntity(new Entity(id, version));
+            _entities[(int)id - 1] = new EntityRecord(version, 0, row);
         }
         
         return new Entity(id, version);
@@ -97,7 +104,7 @@ public sealed class World
             return false;
         
         var record = _entities[(int)entity.Id - 1];
-        return record.Version == entity.Version && record.ArchetypeId != 0;
+        return record.Version == entity.Version && record.Row != -1;
     }
     
     /// <summary>

@@ -199,7 +199,7 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
 /// <summary>
 /// Manages component type IDs for the ECS.
 /// </summary>
-internal static class ComponentTypeId
+public static class ComponentTypeId
 {
     private static int _nextId;
     private static readonly Dictionary<Type, int> _typeToId = new();
