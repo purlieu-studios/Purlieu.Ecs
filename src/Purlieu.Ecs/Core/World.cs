@@ -10,8 +10,8 @@ public sealed class World
     private readonly Queue<uint> _freeIds;
     private uint _nextEntityId;
     
-    private readonly Dictionary<Type, object> _componentStorages;
-    private readonly Dictionary<ulong, Archetype> _archetypes;
+    private readonly Dictionary<ArchetypeSignature, Archetype> _signatureToArchetype;
+    private readonly Dictionary<ulong, Archetype> _idToArchetype;
     private ulong _nextArchetypeId;
     
     public World(int initialCapacity = 1024)
@@ -21,9 +21,15 @@ public sealed class World
         _freeIds = new Queue<uint>();
         _nextEntityId = 1; // 0 is reserved for invalid
         
-        _componentStorages = new Dictionary<Type, object>();
-        _archetypes = new Dictionary<ulong, Archetype>();
-        _nextArchetypeId = 0;
+        _signatureToArchetype = new Dictionary<ArchetypeSignature, Archetype>();
+        _idToArchetype = new Dictionary<ulong, Archetype>();
+        _nextArchetypeId = 1; // 0 is reserved for empty archetype
+        
+        // Create empty archetype
+        var emptySignature = new ArchetypeSignature();
+        var emptyArchetype = new Archetype(0, emptySignature, Array.Empty<Type>());
+        _signatureToArchetype[emptySignature] = emptyArchetype;
+        _idToArchetype[0] = emptyArchetype;
     }
     
     /// <summary>
@@ -69,7 +75,7 @@ public sealed class World
         ref var record = ref GetRecord(entity);
         
         // Clear from archetype if it has one
-        if (record.ArchetypeId != 0 && _archetypes.TryGetValue(record.ArchetypeId, out var archetype))
+        if (record.ArchetypeId != 0 && _idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
         {
             archetype.RemoveEntity(entity, record.Row);
         }
@@ -100,6 +106,22 @@ public sealed class World
     internal ref EntityRecord GetRecord(Entity entity)
     {
         return ref _entities[(int)entity.Id - 1];
+    }
+    
+    /// <summary>
+    /// Gets or creates an archetype for the given signature.
+    /// </summary>
+    internal Archetype GetOrCreateArchetype(ArchetypeSignature signature, Type[] componentTypes)
+    {
+        if (_signatureToArchetype.TryGetValue(signature, out var archetype))
+            return archetype;
+        
+        var id = _nextArchetypeId++;
+        archetype = new Archetype(id, signature, componentTypes);
+        _signatureToArchetype[signature] = archetype;
+        _idToArchetype[id] = archetype;
+        
+        return archetype;
     }
     
     /// <summary>

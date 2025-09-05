@@ -8,17 +8,20 @@ namespace PurlieuEcs.Core;
 internal sealed class Archetype
 {
     private readonly ulong _id;
+    private readonly ArchetypeSignature _signature;
     private readonly Type[] _componentTypes;
     private readonly Dictionary<Type, int> _componentTypeToIndex;
     private readonly List<Chunk> _chunks;
     private readonly int _chunkCapacity;
     
     public ulong Id => _id;
+    public ArchetypeSignature Signature => _signature;
     public IReadOnlyList<Type> ComponentTypes => _componentTypes;
     
-    public Archetype(ulong id, Type[] componentTypes, int chunkCapacity = 512)
+    public Archetype(ulong id, ArchetypeSignature signature, Type[] componentTypes, int chunkCapacity = 512)
     {
         _id = id;
+        _signature = signature;
         _componentTypes = componentTypes;
         _componentTypeToIndex = new Dictionary<Type, int>();
         _chunks = new List<Chunk>();
