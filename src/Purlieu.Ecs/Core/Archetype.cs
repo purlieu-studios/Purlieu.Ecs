@@ -5,7 +5,7 @@ namespace PurlieuEcs.Core;
 /// <summary>
 /// Represents a unique component combination storing entities in chunks.
 /// </summary>
-public sealed class Archetype
+internal sealed class Archetype
 {
     private readonly ulong _id;
     private readonly ArchetypeSignature _signature;
