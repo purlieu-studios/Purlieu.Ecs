@@ -118,7 +118,7 @@ public sealed class World
     /// <summary>
     /// Gets or creates an archetype for the given signature.
     /// </summary>
-    internal Archetype GetOrCreateArchetype(ArchetypeSignature signature, Type[] componentTypes)
+    public Archetype GetOrCreateArchetype(ArchetypeSignature signature, Type[] componentTypes)
     {
         if (_signatureToArchetype.TryGetValue(signature, out var archetype))
             return archetype;
