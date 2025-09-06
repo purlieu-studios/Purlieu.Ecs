@@ -27,12 +27,31 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
     {
         _isSimdSupported = Vector.IsHardwareAccelerated && IsSimdCompatible();
         
+        // Validate SIMD support to prevent boxing in debug builds
         if (_isSimdSupported)
         {
-            // Align capacity to SIMD boundaries for optimal vectorization
-            var vectorSize = Vector<T>.Count;
+            ValidateSimdSupport();
+        }
+        
+        if (_isSimdSupported)
+        {
+            // Only align memory for types that benefit from SIMD operations
+            int vectorSize = GetEffectiveVectorSize();
+            
+            // Calculate memory overhead: only align if overhead is reasonable (< 25%)
             var alignedCapacity = (capacity + vectorSize - 1) / vectorSize * vectorSize;
-            _components = new T[alignedCapacity];
+            var overhead = (alignedCapacity - capacity) / (float)capacity;
+            
+            if (overhead <= 0.25f || capacity >= 64) // Always align for larger chunks
+            {
+                _components = new T[alignedCapacity];
+            }
+            else
+            {
+                // Memory overhead too high for small chunks, fall back to exact size
+                _components = new T[capacity];
+                _isSimdSupported = false; // Disable SIMD for this storage
+            }
         }
         else
         {
@@ -41,17 +60,85 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
     }
     
     /// <summary>
+    /// Gets the effective vector size for SIMD operations.
+    /// For primitive types, uses Vector<T>.Count.
+    /// For composite types, uses Vector<float>.Count as the base unit.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int GetEffectiveVectorSize()
+    {
+        var type = typeof(T);
+        
+        // For primitive types, use direct Vector<T>.Count
+        if (type == typeof(int) || type == typeof(float) || type == typeof(double) ||
+            type == typeof(long) || type == typeof(short) || type == typeof(byte) ||
+            type == typeof(uint) || type == typeof(ulong) || type == typeof(ushort) ||
+            type == typeof(sbyte))
+        {
+            return Vector<T>.Count;
+        }
+        
+        // For composite types with float fields, use Vector<float>.Count
+        // This is the basic vectorization unit for component-wise SIMD
+        return Vector<float>.Count;
+    }
+    
+    /// <summary>
     /// Checks if type T is compatible with SIMD operations.
+    /// Prevents boxing by validating Vector<T> support at compile-time.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static bool IsSimdCompatible()
     {
-        // Vector<T> supports primitive numeric types
         var type = typeof(T);
-        return type == typeof(int) || type == typeof(float) || type == typeof(double) ||
-               type == typeof(long) || type == typeof(short) || type == typeof(byte) ||
-               type == typeof(uint) || type == typeof(ulong) || type == typeof(ushort) ||
-               type == typeof(sbyte);
+        
+        // Direct primitive types supported by Vector<T>
+        if (type == typeof(int) || type == typeof(float) || type == typeof(double) ||
+            type == typeof(long) || type == typeof(short) || type == typeof(byte) ||
+            type == typeof(uint) || type == typeof(ulong) || type == typeof(ushort) ||
+            type == typeof(sbyte))
+        {
+            return true;
+        }
+        
+        // Composite types: check if they contain only SIMD-compatible floats
+        // This enables SIMD for Position, Velocity, Force (3x float structs)
+        if (type.IsValueType && !type.IsEnum)
+        {
+            var fields = type.GetFields(System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+            if (fields.Length > 0)
+            {
+                // All fields must be float for SIMD compatibility
+                return fields.All(f => f.FieldType == typeof(float));
+            }
+        }
+        
+        return false;
+    }
+    
+    /// <summary>
+    /// Validates SIMD compatibility at runtime to prevent boxing.
+    /// Only validates primitive types that should support Vector<T> directly.
+    /// Composite types use component-wise SIMD processing instead.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static void ValidateSimdSupport()
+    {
+        #if DEBUG
+        var type = typeof(T);
+        
+        // Only validate primitive types for direct Vector<T> support
+        bool isPrimitive = type == typeof(int) || type == typeof(float) || type == typeof(double) ||
+                          type == typeof(long) || type == typeof(short) || type == typeof(byte) ||
+                          type == typeof(uint) || type == typeof(ulong) || type == typeof(ushort) ||
+                          type == typeof(sbyte);
+        
+        if (isPrimitive && !Vector<T>.IsSupported)
+        {
+            throw new InvalidOperationException($"Primitive type {typeof(T).Name} is not supported by Vector<T>. This would cause boxing in SIMD operations.");
+        }
+        // Composite types like Position don't use Vector<T> directly, so no validation needed
+        #endif
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -59,6 +146,16 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
     {
         return new Span<T>(_components, 0, count);
     }
+    
+    /// <summary>
+    /// Gets whether SIMD operations are supported for this component type.
+    /// </summary>
+    public bool IsSimdSupported => _isSimdSupported;
+    
+    /// <summary>
+    /// Gets the actual capacity (may be larger due to SIMD alignment).
+    /// </summary>
+    public int ActualCapacity => _components.Length;
     
     /// <summary>
     /// Gets span suitable for SIMD operations with proper alignment.
@@ -70,7 +167,7 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
             return GetSpan(count);
             
         // Return span that's safe for SIMD operations
-        var vectorSize = Vector<T>.Count;
+        var vectorSize = GetEffectiveVectorSize();
         var alignedCount = (count / vectorSize) * vectorSize;
         return new Span<T>(_components, 0, alignedCount);
     }
@@ -84,7 +181,7 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
         if (!_isSimdSupported)
             return Span<T>.Empty;
             
-        var vectorSize = Vector<T>.Count;
+        var vectorSize = GetEffectiveVectorSize();
         var alignedCount = (count / vectorSize) * vectorSize;
         var remainderCount = count - alignedCount;
         
@@ -93,8 +190,6 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
         
         return Span<T>.Empty;
     }
-    
-    public bool IsSimdSupported => _isSimdSupported;
     
     public void SwapRemove(int from, int to)
     {
