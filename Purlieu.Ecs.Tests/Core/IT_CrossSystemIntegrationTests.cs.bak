@@ -1,0 +1,628 @@
+using NUnit.Framework;
+using PurlieuEcs.Core;
+using PurlieuEcs.Systems;
+using PurlieuEcs.Events;
+using System;
+using System.Collections.Generic;
+
+namespace Purlieu.Ecs.Tests.Core;
+
+[TestFixture]
+public class IT_CrossSystemIntegrationTests
+{
+    private World _world = null!;
+    private SystemScheduler _scheduler = null!;
+
+    [SetUp]
+    public void Setup()
+    {
+        _world = new World();
+        _scheduler = new SystemScheduler();
+    }
+
+    [TearDown]
+    public void Cleanup()
+    {
+        _world = null!;
+        _scheduler = null!;
+    }
+
+    [Test]
+    public void IT_Movement_And_Collision_Systems_Integration()
+    {
+        // Register systems in correct order
+        _scheduler.RegisterSystem(new MovementSystem());
+        _scheduler.RegisterSystem(new CollisionDetectionSystem());
+        _scheduler.RegisterSystem(new CollisionResponseSystem());
+
+        // Create entities
+        var entity1 = _world.CreateEntity();
+        var entity2 = _world.CreateEntity();
+
+        _world.AddComponent(entity1, new Position { X = 0, Y = 0 });
+        _world.AddComponent(entity1, new Velocity { X = 10, Y = 0 });
+        _world.AddComponent(entity1, new Collider { Radius = 5 });
+
+        _world.AddComponent(entity2, new Position { X = 15, Y = 0 });
+        _world.AddComponent(entity2, new Velocity { X = -10, Y = 0 });
+        _world.AddComponent(entity2, new Collider { Radius = 5 });
+
+        // Simulate frame
+        float deltaTime = 1.0f;
+        _scheduler.UpdatePhase(_world, deltaTime, GamePhases.Update);
+
+        // Check positions after movement
+        ref var pos1 = ref _world.GetComponent<Position>(entity1);
+        ref var pos2 = ref _world.GetComponent<Position>(entity2);
+
+        Assert.That(pos1.X, Is.EqualTo(10).Within(0.1f));
+        Assert.That(pos2.X, Is.EqualTo(5).Within(0.1f));
+
+        // Check collision detection created collision components
+        Assert.That(_world.HasComponent<CollisionEvent>(entity1), Is.True);
+        Assert.That(_world.HasComponent<CollisionEvent>(entity2), Is.True);
+    }
+
+    [Test]
+    public void IT_Event_Based_System_Communication()
+    {
+        // Systems that communicate via events
+        _scheduler.RegisterSystem(new DamageSystem());
+        _scheduler.RegisterSystem(new HealthSystem());
+        _scheduler.RegisterSystem(new DeathSystem());
+
+        // Create entity with health
+        var entity = _world.CreateEntity();
+        _world.AddComponent(entity, new Health { Current = 100, Maximum = 100 });
+        _world.AddComponent(entity, new DamageIntent { Amount = 30 });
+
+        // First frame: damage applied, health reduced
+        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
+
+        ref var health = ref _world.GetComponent<Health>(entity);
+        Assert.That(health.Current, Is.EqualTo(70));
+        Assert.That(_world.HasComponent<DamageIntent>(entity), Is.False, "DamageIntent should be consumed");
+
+        // Add lethal damage
+        _world.AddComponent(entity, new DamageIntent { Amount = 80 });
+
+        // Second frame: entity should die
+        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
+
+        Assert.That(_world.HasComponent<Dead>(entity), Is.True);
+        Assert.That(_world.GetComponent<Health>(entity).Current, Is.EqualTo(0));
+    }
+
+    [Test]
+    public void IT_Multi_Frame_System_Behavior()
+    {
+        _scheduler.RegisterSystem(new TimerSystem());
+        _scheduler.RegisterSystem(new TimerExpiredSystem());
+
+        // Create entity with timer
+        var entity = _world.CreateEntity();
+        _world.AddComponent(entity, new Timer { Duration = 1.0f, Remaining = 1.0f });
+        _world.AddComponent(entity, new TimerPayload { Message = "Timer completed!" });
+
+        float deltaTime = 0.1f;
+        var events = new List<string>();
+
+        // Simulate 12 frames (1.2 seconds)
+        for (int frame = 0; frame < 12; frame++)
+        {
+            _scheduler.UpdatePhase(_world, deltaTime, GamePhases.Update);
+
+            // Check timer state
+            if (_world.HasComponent<Timer>(entity))
+            {
+                ref var timer = ref _world.GetComponent<Timer>(entity);
+                Console.WriteLine($"Frame {frame}: Timer remaining = {timer.Remaining:F2}");
+            }
+
+            // Check if timer expired
+            if (_world.HasComponent<TimerExpired>(entity))
+            {
+                var payload = _world.GetComponent<TimerPayload>(entity);
+                events.Add(payload.Message);
+                _world.RemoveComponent<TimerExpired>(entity);
+            }
+        }
+
+        Assert.That(events.Count, Is.EqualTo(1));
+        Assert.That(events[0], Is.EqualTo("Timer completed!"));
+        Assert.That(_world.HasComponent<Timer>(entity), Is.False, "Timer should be removed after expiry");
+    }
+
+    [Test]
+    public void IT_System_Execution_Order_Dependencies()
+    {
+        // Test that systems execute in correct order based on phases and priorities
+        var executionLog = new List<string>();
+
+        _scheduler.RegisterSystem(new LoggingSystem("PreUpdate-High", GamePhases.PreUpdate, 100, executionLog));
+        _scheduler.RegisterSystem(new LoggingSystem("PreUpdate-Low", GamePhases.PreUpdate, 200, executionLog));
+        _scheduler.RegisterSystem(new LoggingSystem("Update-High", GamePhases.Update, 100, executionLog));
+        _scheduler.RegisterSystem(new LoggingSystem("Update-Low", GamePhases.Update, 200, executionLog));
+        _scheduler.RegisterSystem(new LoggingSystem("PostUpdate", GamePhases.PostUpdate, 100, executionLog));
+
+        // Execute all phases
+        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.PreUpdate);
+        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
+        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.PostUpdate);
+
+        var expectedOrder = new[]
+        {
+            "PreUpdate-High",
+            "PreUpdate-Low",
+            "Update-High",
+            "Update-Low",
+            "PostUpdate"
+        };
+
+        Assert.That(executionLog.ToArray(), Is.EqualTo(expectedOrder));
+    }
+
+    [Test]
+    public void IT_Component_Migration_During_System_Execution()
+    {
+        // System that adds/removes components during execution
+        _scheduler.RegisterSystem(new StateTransitionSystem());
+
+        // Create entities in different states
+        var entity1 = _world.CreateEntity();
+        var entity2 = _world.CreateEntity();
+        var entity3 = _world.CreateEntity();
+
+        _world.AddComponent(entity1, new StateComponent { State = "Idle" });
+        _world.AddComponent(entity2, new StateComponent { State = "Moving" });
+        _world.AddComponent(entity3, new StateComponent { State = "Attacking" });
+
+        // Add transition triggers
+        _world.AddComponent(entity1, new StateTransition { From = "Idle", To = "Moving" });
+        _world.AddComponent(entity2, new StateTransition { From = "Moving", To = "Attacking" });
+        _world.AddComponent(entity3, new StateTransition { From = "Attacking", To = "Idle" });
+
+        // Execute system
+        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
+
+        // Verify state transitions occurred
+        Assert.That(_world.GetComponent<StateComponent>(entity1).State, Is.EqualTo("Moving"));
+        Assert.That(_world.GetComponent<StateComponent>(entity2).State, Is.EqualTo("Attacking"));
+        Assert.That(_world.GetComponent<StateComponent>(entity3).State, Is.EqualTo("Idle"));
+
+        // Verify transition components were consumed
+        Assert.That(_world.HasComponent<StateTransition>(entity1), Is.False);
+        Assert.That(_world.HasComponent<StateTransition>(entity2), Is.False);
+        Assert.That(_world.HasComponent<StateTransition>(entity3), Is.False);
+    }
+
+    [Test]
+    public void IT_Query_Consistency_During_System_Updates()
+    {
+        _scheduler.RegisterSystem(new EntitySpawnerSystem());
+        _scheduler.RegisterSystem(new EntityCounterSystem());
+
+        // Initial entities
+        for (int i = 0; i < 10; i++)
+        {
+            var entity = _world.CreateEntity();
+            _world.AddComponent(entity, new SpawnTrigger { Count = 2 });
+        }
+
+        int initialCount = _world.Query().With<SpawnTrigger>().Count();
+        Assert.That(initialCount, Is.EqualTo(10));
+
+        // Execute systems - spawner creates new entities, counter counts them
+        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
+
+        // Each original entity should have spawned 2 new entities
+        int finalCount = _world.Query().With<SpawnTrigger>().Count();
+        Assert.That(finalCount, Is.EqualTo(20), "Each entity should spawn 2 more entities");
+
+        // Original entities should have spawn triggers removed
+        var withoutSpawnTrigger = _world.Query().Without<SpawnTrigger>().Count();
+        Assert.That(withoutSpawnTrigger, Is.EqualTo(10), "Original entities should lose spawn trigger");
+    }
+
+    [Test]
+    public void IT_Event_Channel_Multi_Frame_Persistence()
+    {
+        _scheduler.RegisterSystem(new EventPublisherSystem());
+        _scheduler.RegisterSystem(new EventConsumerSystem());
+
+        var entity = _world.CreateEntity();
+        _world.AddComponent(entity, new EventTrigger { Message = "Frame1", PublishFrame = 1 });
+        _world.AddComponent(entity, new EventTrigger { Message = "Frame3", PublishFrame = 3 });
+
+        var consumedEvents = new List<string>();
+
+        for (int frame = 1; frame <= 5; frame++)
+        {
+            // Set current frame for publisher system
+            if (_world.HasComponent<EventTrigger>(entity))
+            {
+                ref var trigger = ref _world.GetComponent<EventTrigger>(entity);
+                trigger.CurrentFrame = frame;
+            }
+
+            _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
+
+            // Check consumed events
+            _world.Events<GameEvent>().ConsumeAll(evt => consumedEvents.Add($"Frame{frame}:{evt.Message}"));
+        }
+
+        Assert.That(consumedEvents, Contains.Item("Frame1:Frame1"));
+        Assert.That(consumedEvents, Contains.Item("Frame3:Frame3"));
+        Assert.That(consumedEvents.Count, Is.EqualTo(2));
+    }
+}
+
+// Test Components
+public struct Position
+{
+    public float X, Y;
+}
+
+public struct Velocity
+{
+    public float X, Y;
+}
+
+public struct Collider
+{
+    public float Radius;
+}
+
+public struct CollisionEvent
+{
+    public Entity Other;
+}
+
+public struct Health
+{
+    public int Current, Maximum;
+}
+
+public struct DamageIntent
+{
+    public int Amount;
+}
+
+public struct Dead { }
+
+public struct Timer
+{
+    public float Duration, Remaining;
+}
+
+public struct TimerPayload
+{
+    public string Message;
+}
+
+public struct TimerExpired { }
+
+public struct StateComponent
+{
+    public string State;
+}
+
+public struct StateTransition
+{
+    public string From, To;
+}
+
+public struct SpawnTrigger
+{
+    public int Count;
+}
+
+public struct EventTrigger
+{
+    public string Message;
+    public int PublishFrame;
+    public int CurrentFrame;
+}
+
+public struct GameEvent
+{
+    public string Message;
+}
+
+// Test Systems
+[GamePhase(GamePhases.Update, 100)]
+public class MovementSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<Position>().With<Velocity>();
+        foreach (var chunk in query.Chunks())
+        {
+            var positions = chunk.GetSpan<Position>();
+            var velocities = chunk.GetSpan<Velocity>();
+
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                positions[i].X += velocities[i].X * deltaTime;
+                positions[i].Y += velocities[i].Y * deltaTime;
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 200)]
+public class CollisionDetectionSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var entities = new List<(Entity, Position, Collider)>();
+        var query = world.Query().With<Position>().With<Collider>().Without<CollisionEvent>();
+        
+        foreach (var chunk in query.Chunks())
+        {
+            var positions = chunk.GetSpan<Position>();
+            var colliders = chunk.GetSpan<Collider>();
+            
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                entities.Add((chunk.GetEntity(i), positions[i], colliders[i]));
+            }
+        }
+
+        // Simple O(n²) collision check
+        for (int i = 0; i < entities.Count; i++)
+        {
+            for (int j = i + 1; j < entities.Count; j++)
+            {
+                var (e1, p1, c1) = entities[i];
+                var (e2, p2, c2) = entities[j];
+
+                float dx = p1.X - p2.X;
+                float dy = p1.Y - p2.Y;
+                float distance = (float)Math.Sqrt(dx * dx + dy * dy);
+
+                if (distance < c1.Radius + c2.Radius)
+                {
+                    world.AddComponent(e1, new CollisionEvent { Other = e2 });
+                    world.AddComponent(e2, new CollisionEvent { Other = e1 });
+                }
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 300)]
+public class CollisionResponseSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<CollisionEvent>().With<Velocity>();
+        foreach (var chunk in query.Chunks())
+        {
+            var velocities = chunk.GetSpan<Velocity>();
+            
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                // Simple bounce response
+                velocities[i].X *= -0.8f;
+                velocities[i].Y *= -0.8f;
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 100)]
+public class DamageSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<Health>().With<DamageIntent>();
+        foreach (var chunk in query.Chunks())
+        {
+            var healths = chunk.GetSpan<Health>();
+            var damages = chunk.GetSpan<DamageIntent>();
+            var entities = chunk.GetEntities();
+
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                healths[i].Current = Math.Max(0, healths[i].Current - damages[i].Amount);
+                world.RemoveComponent<DamageIntent>(entities[i]);
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 200)]
+public class HealthSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        // Health validation and clamping
+        var query = world.Query().With<Health>();
+        foreach (var chunk in query.Chunks())
+        {
+            var healths = chunk.GetSpan<Health>();
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                healths[i].Current = Math.Clamp(healths[i].Current, 0, healths[i].Maximum);
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 300)]
+public class DeathSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<Health>().Without<Dead>();
+        foreach (var chunk in query.Chunks())
+        {
+            var healths = chunk.GetSpan<Health>();
+            var entities = chunk.GetEntities();
+
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                if (healths[i].Current <= 0)
+                {
+                    world.AddComponent(entities[i], new Dead());
+                }
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 100)]
+public class TimerSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<Timer>();
+        foreach (var chunk in query.Chunks())
+        {
+            var timers = chunk.GetSpan<Timer>();
+            var entities = chunk.GetEntities();
+
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                timers[i].Remaining -= deltaTime;
+                if (timers[i].Remaining <= 0)
+                {
+                    world.AddComponent(entities[i], new TimerExpired());
+                }
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 200)]
+public class TimerExpiredSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<TimerExpired>().With<Timer>();
+        foreach (var chunk in query.Chunks())
+        {
+            var entities = chunk.GetEntities();
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                world.RemoveComponent<Timer>(entities[i]);
+            }
+        }
+    }
+}
+
+public class LoggingSystem : ISystem
+{
+    private readonly string _name;
+    private readonly List<string> _log;
+
+    public LoggingSystem(string name, string phase, int order, List<string> log)
+    {
+        _name = name;
+        _log = log;
+        
+        // Apply attributes dynamically (in real implementation, this would be compile-time)
+        var attr = new GamePhaseAttribute(phase, order);
+    }
+
+    public void Update(World world, float deltaTime)
+    {
+        _log.Add(_name);
+    }
+}
+
+[GamePhase(GamePhases.Update, 100)]
+public class StateTransitionSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<StateComponent>().With<StateTransition>();
+        foreach (var chunk in query.Chunks())
+        {
+            var states = chunk.GetSpan<StateComponent>();
+            var transitions = chunk.GetSpan<StateTransition>();
+            var entities = chunk.GetEntities();
+
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                if (states[i].State == transitions[i].From)
+                {
+                    states[i].State = transitions[i].To;
+                    world.RemoveComponent<StateTransition>(entities[i]);
+                }
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 100)]
+public class EntitySpawnerSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<SpawnTrigger>();
+        var toSpawn = new List<(Entity, int)>();
+
+        foreach (var chunk in query.Chunks())
+        {
+            var triggers = chunk.GetSpan<SpawnTrigger>();
+            var entities = chunk.GetEntities();
+
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                toSpawn.Add((entities[i], triggers[i].Count));
+            }
+        }
+
+        foreach (var (entity, count) in toSpawn)
+        {
+            for (int i = 0; i < count; i++)
+            {
+                var newEntity = world.CreateEntity();
+                world.AddComponent(newEntity, new SpawnTrigger { Count = 0 });
+            }
+            world.RemoveComponent<SpawnTrigger>(entity);
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 200)]
+public class EntityCounterSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        // Just count entities for testing
+        var count = world.Query().With<SpawnTrigger>().Count();
+    }
+}
+
+[GamePhase(GamePhases.Update, 100)]
+public class EventPublisherSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        var query = world.Query().With<EventTrigger>();
+        foreach (var chunk in query.Chunks())
+        {
+            var triggers = chunk.GetSpan<EventTrigger>();
+            
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                if (triggers[i].CurrentFrame == triggers[i].PublishFrame)
+                {
+                    world.Events<GameEvent>().Publish(new GameEvent { Message = triggers[i].Message });
+                }
+            }
+        }
+    }
+}
+
+[GamePhase(GamePhases.Update, 200)]
+public class EventConsumerSystem : ISystem
+{
+    public void Update(World world, float deltaTime)
+    {
+        // Events are consumed in the test directly
+    }
+}

@@ -32,11 +32,7 @@ internal sealed class Archetype
             _componentTypeToIndex[componentTypes[i]] = i;
         }
         
-        // Create first chunk
-        if (_componentTypes.Length > 0)
-        {
-            _chunks.Add(new Chunk(_componentTypes, _chunkCapacity));
-        }
+        // Don't create chunks for empty archetype (no components)
     }
     
     /// <summary>
@@ -44,13 +40,21 @@ internal sealed class Archetype
     /// </summary>
     public int AddEntity(Entity entity)
     {
+        // Empty archetype (no components) doesn't use chunks
+        if (_componentTypes.Length == 0)
+        {
+            return 0; // Row doesn't matter for empty archetype
+        }
+        
         // Find chunk with space
         Chunk? targetChunk = null;
-        foreach (var chunk in _chunks)
+        int chunkIndex = 0;
+        for (int i = 0; i < _chunks.Count; i++)
         {
-            if (chunk.Count < _chunkCapacity)
+            if (_chunks[i].Count < _chunkCapacity)
             {
-                targetChunk = chunk;
+                targetChunk = _chunks[i];
+                chunkIndex = i;
                 break;
             }
         }
@@ -60,9 +64,12 @@ internal sealed class Archetype
         {
             targetChunk = new Chunk(_componentTypes, _chunkCapacity);
             _chunks.Add(targetChunk);
+            chunkIndex = _chunks.Count - 1;
         }
         
-        return targetChunk.AddEntity(entity);
+        var localRow = targetChunk.AddEntity(entity);
+        // Return global row index (chunk index * capacity + local row)
+        return chunkIndex * _chunkCapacity + localRow;
     }
     
     /// <summary>
@@ -70,6 +77,12 @@ internal sealed class Archetype
     /// </summary>
     public void RemoveEntity(Entity entity, int row)
     {
+        // Empty archetype doesn't have chunks
+        if (_componentTypes.Length == 0)
+        {
+            return;
+        }
+        
         // Find chunk containing this row
         int chunkIndex = row / _chunkCapacity;
         int localRow = row % _chunkCapacity;
@@ -78,5 +91,13 @@ internal sealed class Archetype
         {
             _chunks[chunkIndex].RemoveEntity(localRow);
         }
+    }
+    
+    /// <summary>
+    /// Gets all chunks in this archetype.
+    /// </summary>
+    public IEnumerable<Chunk> GetChunks()
+    {
+        return _chunks;
     }
 }

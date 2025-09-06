@@ -143,6 +143,22 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
         return true;
     }
     
+    /// <summary>
+    /// Checks if this signature has any bits in common with another signature.
+    /// </summary>
+    public bool HasIntersection(ArchetypeSignature other)
+    {
+        int minLength = Math.Min(_bits.Length, other._bits.Length);
+        
+        for (int i = 0; i < minLength; i++)
+        {
+            if ((_bits[i] & other._bits[i]) != 0)
+                return true;
+        }
+        
+        return false;
+    }
+    
     public bool Equals(ArchetypeSignature other)
     {
         if (_hashCode != other._hashCode)

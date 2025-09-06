@@ -4,12 +4,48 @@ using System.Runtime.InteropServices;
 namespace PurlieuEcs.Core;
 
 /// <summary>
+/// Interface for component storage in chunks.
+/// </summary>
+internal interface IComponentStorage
+{
+    void SwapRemove(int from, int to);
+    Type ComponentType { get; }
+}
+
+/// <summary>
+/// Typed component storage for zero-boxing access.
+/// </summary>
+internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
+{
+    private readonly T[] _components;
+    
+    public Type ComponentType => typeof(T);
+    
+    public ComponentStorage(int capacity)
+    {
+        _components = new T[capacity];
+    }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Span<T> GetSpan(int count)
+    {
+        return new Span<T>(_components, 0, count);
+    }
+    
+    public void SwapRemove(int from, int to)
+    {
+        _components[to] = _components[from];
+    }
+}
+
+/// <summary>
 /// Stores entities and components in SoA layout for cache efficiency.
 /// </summary>
-internal sealed class Chunk
+public sealed class Chunk
 {
     private readonly Type[] _componentTypes;
-    private readonly Array[] _componentArrays;
+    private readonly IComponentStorage[] _componentStorages;
+    private readonly Dictionary<Type, int> _typeToIndex;
     private readonly Entity[] _entities;
     private readonly int _capacity;
     private int _count;
@@ -24,12 +60,18 @@ internal sealed class Chunk
         _count = 0;
         
         _entities = new Entity[capacity];
-        _componentArrays = new Array[componentTypes.Length];
+        _componentStorages = new IComponentStorage[componentTypes.Length];
+        _typeToIndex = new Dictionary<Type, int>();
         
-        // Create component arrays
+        // Create typed component storages
         for (int i = 0; i < componentTypes.Length; i++)
         {
-            _componentArrays[i] = Array.CreateInstance(componentTypes[i], capacity);
+            var componentType = componentTypes[i];
+            _typeToIndex[componentType] = i;
+            
+            // Create generic storage using reflection (init-time only)
+            var storageType = typeof(ComponentStorage<>).MakeGenericType(componentType);
+            _componentStorages[i] = (IComponentStorage)Activator.CreateInstance(storageType, capacity)!;
         }
     }
     
@@ -63,17 +105,10 @@ internal sealed class Chunk
         {
             _entities[row] = _entities[_count];
             
-            // Swap component data
-            for (int i = 0; i < _componentArrays.Length; i++)
+            // Swap component data using typed storages
+            for (int i = 0; i < _componentStorages.Length; i++)
             {
-                var array = _componentArrays[i];
-                var elementType = array.GetType().GetElementType()!;
-                var size = Marshal.SizeOf(elementType);
-                
-                // Simple swap - in production would use unsafe code for performance
-                var temp = array.GetValue(_count);
-                array.SetValue(array.GetValue(row), _count);
-                array.SetValue(temp, row);
+                _componentStorages[i].SwapRemove(_count, row);
             }
             
             return _entities[row]; // Return entity that was moved
@@ -94,16 +129,14 @@ internal sealed class Chunk
     /// <summary>
     /// Gets a typed span for component access.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Span<T> GetSpan<T>() where T : struct
     {
         var type = typeof(T);
-        for (int i = 0; i < _componentTypes.Length; i++)
+        if (_typeToIndex.TryGetValue(type, out var index))
         {
-            if (_componentTypes[i] == type)
-            {
-                var array = _componentArrays[i] as T[];
-                return new Span<T>(array, 0, _count);
-            }
+            var storage = _componentStorages[index] as ComponentStorage<T>;
+            return storage != null ? storage.GetSpan(_count) : Span<T>.Empty;
         }
         
         return Span<T>.Empty;
@@ -112,14 +145,19 @@ internal sealed class Chunk
     /// <summary>
     /// Checks if this chunk has a component type.
     /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool HasComponent<T>() where T : struct
     {
-        var type = typeof(T);
-        for (int i = 0; i < _componentTypes.Length; i++)
-        {
-            if (_componentTypes[i] == type)
-                return true;
-        }
-        return false;
+        return _typeToIndex.ContainsKey(typeof(T));
+    }
+    
+    /// <summary>
+    /// Gets a component reference for direct access.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ref T GetComponent<T>(int row) where T : struct
+    {
+        var span = GetSpan<T>();
+        return ref span[row];
     }
 }

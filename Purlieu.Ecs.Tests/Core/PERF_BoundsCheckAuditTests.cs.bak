@@ -1,0 +1,315 @@
+using NUnit.Framework;
+using PurlieuEcs.Core;
+using System;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+
+namespace Purlieu.Ecs.Tests.Core;
+
+[TestFixture]
+public class PERF_BoundsCheckAuditTests
+{
+    private World _world = null!;
+    private Entity[] _entities = null!;
+
+    [SetUp]
+    public void Setup()
+    {
+        _world = new World();
+        _entities = new Entity[10000];
+        for (int i = 0; i < _entities.Length; i++)
+        {
+            _entities[i] = _world.CreateEntity();
+            _world.AddComponent(_entities[i], new PerfTestComponentA { X = i, Y = i * 2, Z = i * 3, Value = i * 0.1f });
+            _world.AddComponent(_entities[i], new PerfTestComponentB { X = i * 0.5f, Y = i * 0.7f, Timestamp = i });
+        }
+    }
+
+    [TearDown]
+    public void Cleanup()
+    {
+        _world = null!;
+        _entities = null!;
+    }
+
+    [Test]
+    public void PERF_GetSpan_NoBoundsChecks_SingleComponent()
+    {
+        var query = _world.Query().With<PerfTestComponentA>();
+        long iterations = 0;
+        long sum = 0;
+
+        var stopwatch = Stopwatch.StartNew();
+        
+        foreach (var chunk in query.Chunks())
+        {
+            var span = chunk.GetSpan<PerfTestComponentA>();
+            var count = chunk.Count;
+            
+            // This loop should compile to no bounds checks when optimized
+            for (int i = 0; i < count; i++)
+            {
+                sum += span[i].X + span[i].Y + span[i].Z;
+                iterations++;
+            }
+        }
+        
+        stopwatch.Stop();
+        
+        // Verify we actually processed data
+        Assert.That(iterations, Is.EqualTo(_entities.Length));
+        Assert.That(sum, Is.GreaterThan(0));
+        
+        // Performance assertion - should be very fast without bounds checks
+        // This is more of a smoke test; actual bounds check elimination would need IL inspection
+        var nsPerIteration = (stopwatch.ElapsedTicks * 1000000000.0) / (Stopwatch.Frequency * iterations);
+        Assert.That(nsPerIteration, Is.LessThan(50), 
+            $"Expected <50ns per iteration, got {nsPerIteration:F2}ns. Possible bounds check overhead.");
+    }
+
+    [Test]
+    public void PERF_GetSpan_NoBoundsChecks_TwoComponents()
+    {
+        var query = _world.Query().With<PerfTestComponentA>().With<PerfTestComponentB>();
+        long iterations = 0;
+        long sum = 0;
+
+        var stopwatch = Stopwatch.StartNew();
+        
+        foreach (var chunk in query.Chunks())
+        {
+            var spanA = chunk.GetSpan<PerfTestComponentA>();
+            var spanB = chunk.GetSpan<PerfTestComponentB>();
+            var count = chunk.Count;
+            
+            // This should compile to optimal code with no bounds checks
+            for (int i = 0; i < count; i++)
+            {
+                sum += spanA[i].X + spanA[i].Y + (long)spanB[i].X + (long)spanB[i].Y;
+                iterations++;
+            }
+        }
+        
+        stopwatch.Stop();
+        
+        Assert.That(iterations, Is.GreaterThan(0));
+        Assert.That(sum, Is.GreaterThan(0));
+        
+        var nsPerIteration = (stopwatch.ElapsedTicks * 1000000000.0) / (Stopwatch.Frequency * iterations);
+        Assert.That(nsPerIteration, Is.LessThan(75), 
+            $"Expected <75ns per iteration, got {nsPerIteration:F2}ns. Possible bounds check overhead.");
+    }
+
+    [Test]
+    public void PERF_GetSpan_CompareAgainstUnsafe()
+    {
+        var query = _world.Query().With<PerfTestComponentA>();
+        
+        // Measure safe span access
+        var stopwatchSafe = Stopwatch.StartNew();
+        long safeSumA = 0, safeSumB = 0, safeSumC = 0;
+        
+        foreach (var chunk in query.Chunks())
+        {
+            var span = chunk.GetSpan<PerfTestComponentA>();
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                safeSumA += span[i].X;
+                safeSumB += span[i].Y;
+                safeSumC += span[i].Z;
+            }
+        }
+        stopwatchSafe.Stop();
+        
+        // Measure unsafe access (reference for comparison)
+        var stopwatchUnsafe = Stopwatch.StartUnsafe();
+        long unsafeSumA = 0, unsafeSumB = 0, unsafeSumC = 0;
+        
+        foreach (var chunk in query.Chunks())
+        {
+            var span = chunk.GetSpan<PerfTestComponentA>();
+            unsafe
+            {
+                fixed (PerfTestComponentA* ptr = span)
+                {
+                    for (int i = 0; i < chunk.Count; i++)
+                    {
+                        unsafeSumA += ptr[i].X;
+                        unsafeSumB += ptr[i].Y;
+                        unsafeSumC += ptr[i].Z;
+                    }
+                }
+            }
+        }
+        stopwatchUnsafe.Stop();
+        
+        // Verify same results
+        Assert.That(safeSumA, Is.EqualTo(unsafeSumA));
+        Assert.That(safeSumB, Is.EqualTo(unsafeSumB));
+        Assert.That(safeSumC, Is.EqualTo(unsafeSumC));
+        
+        // Performance should be very close if bounds checks are eliminated
+        var safeTime = stopwatchSafe.ElapsedTicks;
+        var unsafeTime = stopwatchUnsafe.ElapsedTicks;
+        var ratio = (double)safeTime / unsafeTime;
+        
+        Assert.That(ratio, Is.LessThan(1.5), 
+            $"Safe span access is {ratio:F2}x slower than unsafe. Expected <1.5x if bounds checks eliminated.");
+    }
+
+    [Test]
+    public void PERF_Span_OptimalAccess_Pattern()
+    {
+        // Test the exact pattern we expect systems to use
+        var query = _world.Query().With<PerfTestComponentA>().With<PerfTestComponentB>();
+        
+        var stopwatch = Stopwatch.StartNew();
+        long processedCount = 0;
+        
+        foreach (var chunk in query.Chunks())
+        {
+            var componentA = chunk.GetSpan<PerfTestComponentA>();
+            var componentB = chunk.GetSpan<PerfTestComponentB>();
+            var count = chunk.Count; // Cache count to help optimizer
+            
+            // This is the hot path pattern - should be bounds-check free
+            for (int i = 0; i < count; i++)
+            {
+                // Typical ECS system operations
+                ref var a = ref componentA[i];
+                ref var b = ref componentB[i];
+                
+                // Modify in place (common pattern)
+                a.Value += b.X * 0.1f;
+                b.X *= 1.01f;
+                processedCount++;
+            }
+        }
+        
+        stopwatch.Stop();
+        
+        Assert.That(processedCount, Is.GreaterThan(0));
+        
+        var nsPerEntity = (stopwatch.ElapsedTicks * 1000000000.0) / (Stopwatch.Frequency * processedCount);
+        Assert.That(nsPerEntity, Is.LessThan(100), 
+            $"Expected <100ns per entity, got {nsPerEntity:F2}ns. System hot path may have bounds check overhead.");
+    }
+
+    [Test]
+    public void PERF_ChunkIteration_MinimalOverhead()
+    {
+        var query = _world.Query().With<PerfTestComponentA>();
+        
+        // Measure chunk iteration overhead
+        var stopwatch = Stopwatch.StartNew();
+        int chunkCount = 0;
+        int totalEntities = 0;
+        
+        foreach (var chunk in query.Chunks())
+        {
+            chunkCount++;
+            totalEntities += chunk.Count;
+            
+            // Minimal work to prevent optimization
+            var span = chunk.GetSpan<PerfTestComponentA>();
+            if (span.Length > 0)
+            {
+                var _ = span[0].X;
+            }
+        }
+        
+        stopwatch.Stop();
+        
+        Assert.That(totalEntities, Is.EqualTo(_entities.Length));
+        
+        var nsPerChunk = (stopwatch.ElapsedTicks * 1000000000.0) / (Stopwatch.Frequency * chunkCount);
+        Assert.That(nsPerChunk, Is.LessThan(5000), 
+            $"Expected <5000ns per chunk iteration, got {nsPerChunk:F2}ns. Chunk iteration overhead too high.");
+    }
+
+    [Test]
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    public void PERF_SpanAccess_NoInline_BoundsCheck()
+    {
+        // Force method not to be inlined to better observe bounds check behavior
+        var query = _world.Query().With<PerfTestComponentA>();
+        
+        foreach (var chunk in query.Chunks())
+        {
+            var span = chunk.GetSpan<PerfTestComponentA>();
+            ProcessSpanNoInline(span, chunk.Count);
+        }
+    }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static long ProcessSpanNoInline(ReadOnlySpan<PerfTestComponentA> span, int count)
+    {
+        long sum = 0;
+        
+        // This pattern should still eliminate bounds checks in release builds
+        for (int i = 0; i < count; i++)
+        {
+            sum += span[i].X + span[i].Y + span[i].Z;
+        }
+        
+        return sum;
+    }
+
+    [Test]
+    public void PERF_MultipleSpanAccess_SameIteration()
+    {
+        // Test accessing multiple spans in the same tight loop
+        var query = _world.Query().With<PerfTestComponentA>().With<PerfTestComponentB>();
+        
+        var stopwatch = Stopwatch.StartNew();
+        long sum = 0;
+        int processedEntities = 0;
+        
+        foreach (var chunk in query.Chunks())
+        {
+            var spanA = chunk.GetSpan<PerfTestComponentA>();
+            var spanB = chunk.GetSpan<PerfTestComponentB>();
+            var count = chunk.Count;
+            
+            // Multiple span accesses in tight loop
+            for (int i = 0; i < count; i++)
+            {
+                sum += spanA[i].X + spanA[i].Y + spanA[i].Z;
+                sum += (long)(spanB[i].X + spanB[i].Y);
+                sum += spanB[i].Timestamp;
+                processedEntities++;
+            }
+        }
+        
+        stopwatch.Stop();
+        
+        Assert.That(processedEntities, Is.GreaterThan(0));
+        
+        var nsPerEntity = (stopwatch.ElapsedTicks * 1000000000.0) / (Stopwatch.Frequency * processedEntities);
+        Assert.That(nsPerEntity, Is.LessThan(150), 
+            $"Expected <150ns per entity for multi-span access, got {nsPerEntity:F2}ns.");
+    }
+}
+
+public static class StopwatchExtensions
+{
+    public static Stopwatch StartUnsafe()
+    {
+        var sw = new Stopwatch();
+        sw.Start();
+        return sw;
+    }
+}
+
+// Test components for performance tests
+public struct PerfTestComponentA
+{
+    public int X, Y, Z;
+    public float Value;
+}
+
+public struct PerfTestComponentB
+{
+    public float X, Y;
+    public int Timestamp;
+}
