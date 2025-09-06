@@ -1,0 +1,217 @@
+using BenchmarkDotNet.Attributes;
+using BenchmarkDotNet.Jobs;
+using PurlieuEcs.Core;
+using Purlieu.Logic.Components;
+using Purlieu.Logic.Systems;
+using System.Numerics;
+
+namespace Purlieu.Logic.Tests;
+
+/// <summary>
+/// Benchmarks demonstrating SIMD performance improvements in movement systems.
+/// Expected 4-8x improvement for SIMD-optimized operations.
+/// </summary>
+[MemoryDiagnoser]
+[SimpleJob(RuntimeMoniker.Net80, baseline: true)]
+[GroupBenchmarksBy(BenchmarkDotNet.Configs.BenchmarkLogicalGroupRule.ByCategory)]
+[CategoriesColumn]
+public class BENCH_SimdMovement
+{
+    private World _world = null!;
+    private MovementSystem _movementSystem = null!;
+    private Entity[] _entities = null!;
+    private const int EntityCount = 10000;
+
+    [GlobalSetup]
+    public void Setup()
+    {
+        _world = new World();
+        _movementSystem = new MovementSystem();
+        
+        // Register Logic components
+        LogicBootstrap.RegisterComponents(_world);
+        
+        _entities = new Entity[EntityCount];
+        var random = new Random(42); // Deterministic seed
+        
+        for (int i = 0; i < _entities.Length; i++)
+        {
+            _entities[i] = _world.CreateEntity();
+            
+            _world.AddComponent(_entities[i], new Position(
+                (float)(random.NextDouble() * 100), 
+                (float)(random.NextDouble() * 100),
+                (float)(random.NextDouble() * 100)
+            ));
+            
+            _world.AddComponent(_entities[i], new Velocity(
+                (float)(random.NextDouble() * 10 - 5), 
+                (float)(random.NextDouble() * 10 - 5),
+                (float)(random.NextDouble() * 10 - 5)
+            ));
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    [BenchmarkCategory("Movement")]
+    public void ScalarMovementSystem()
+    {
+        // Simulate scalar-only movement processing
+        ProcessMovementScalar();
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("Movement")]
+    public void SimdMovementSystem()
+    {
+        // Use the SIMD-optimized movement system
+        _movementSystem.Update(_world, 0.016f);
+    }
+    
+    /// <summary>
+    /// Manual scalar implementation for comparison baseline.
+    /// </summary>
+    private void ProcessMovementScalar()
+    {
+        const float deltaTime = 0.016f;
+        
+        var query = _world.Query()
+            .With<Position>()
+            .With<Velocity>();
+        
+        foreach (var chunk in query.ChunksStack())
+        {
+            var positions = chunk.GetSpan<Position>();
+            var velocities = chunk.GetSpan<Velocity>();
+            
+            // Force scalar processing (no SIMD)
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                positions[i].X += velocities[i].X * deltaTime;
+                positions[i].Y += velocities[i].Y * deltaTime;
+                positions[i].Z += velocities[i].Z * deltaTime;
+            }
+        }
+    }
+
+    [Benchmark(Baseline = true)]
+    [BenchmarkCategory("BulkOperations")]
+    public void ScalarBulkPositionUpdate()
+    {
+        const float multiplier = 1.1f;
+        
+        var query = _world.Query().With<Position>();
+        
+        foreach (var chunk in query.ChunksStack())
+        {
+            var positions = chunk.GetSpan<Position>();
+            
+            for (int i = 0; i < positions.Length; i++)
+            {
+                positions[i].X *= multiplier;
+                positions[i].Y *= multiplier;
+                positions[i].Z *= multiplier;
+            }
+        }
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("BulkOperations")]
+    public void SimdBulkPositionUpdate()
+    {
+        const float multiplier = 1.1f;
+        var multiplierVector = new Vector<float>(multiplier);
+        
+        var query = _world.Query().With<Position>();
+        
+        foreach (var chunk in query.ChunksStack())
+        {
+            if (chunk.IsSimdSupported<Position>())
+            {
+                ProcessBulkUpdateSimd(chunk, multiplierVector);
+            }
+            else
+            {
+                // Fallback to scalar
+                var positions = chunk.GetSpan<Position>();
+                for (int i = 0; i < positions.Length; i++)
+                {
+                    positions[i].X *= multiplier;
+                    positions[i].Y *= multiplier;
+                    positions[i].Z *= multiplier;
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// SIMD-optimized bulk position updates.
+    /// </summary>
+    private unsafe void ProcessBulkUpdateSimd(Chunk chunk, Vector<float> multiplier)
+    {
+        var positionsSimd = chunk.GetSimdSpan<Position>();
+        var positionsRemainder = chunk.GetRemainderSpan<Position>();
+        
+        if (positionsSimd.Length > 0)
+        {
+            fixed (Position* posPtr = positionsSimd)
+            {
+                float* floatPtr = (float*)posPtr;
+                int floatCount = positionsSimd.Length * 3; // 3 floats per Position
+                var vectorSize = Vector<float>.Count;
+                
+                for (int i = 0; i <= floatCount - vectorSize; i += vectorSize)
+                {
+                    var vec = new Vector<float>(new ReadOnlySpan<float>(floatPtr + i, vectorSize));
+                    var result = vec * multiplier;
+                    result.CopyTo(new Span<float>(floatPtr + i, vectorSize));
+                }
+            }
+        }
+        
+        // Process remainder with scalar operations
+        for (int i = 0; i < positionsRemainder.Length; i++)
+        {
+            positionsRemainder[i].X *= multiplier[0];
+            positionsRemainder[i].Y *= multiplier[0];
+            positionsRemainder[i].Z *= multiplier[0];
+        }
+    }
+
+    [Benchmark]
+    [BenchmarkCategory("ForceAccumulation")]
+    public void ForceAccumulationBenchmark()
+    {
+        // Add forces to half the entities for testing
+        for (int i = 0; i < _entities.Length / 2; i++)
+        {
+            if (!_world.HasComponent<Force>(_entities[i]))
+            {
+                _world.AddComponent(_entities[i], new Force(1f, 2f, 3f));
+            }
+        }
+        
+        // Benchmark force accumulation processing
+        const float deltaTime = 0.016f;
+        const float mass = 1.0f;
+        
+        var query = _world.Query()
+            .With<Velocity>()
+            .With<Force>();
+        
+        foreach (var chunk in query.ChunksStack())
+        {
+            var velocities = chunk.GetSpan<Velocity>();
+            var forces = chunk.GetSpan<Force>();
+            
+            for (int i = 0; i < chunk.Count; i++)
+            {
+                velocities[i].X += forces[i].X / mass * deltaTime;
+                velocities[i].Y += forces[i].Y / mass * deltaTime;
+                velocities[i].Z += forces[i].Z / mass * deltaTime;
+                
+                forces[i] = default; // Clear forces
+            }
+        }
+    }
+}

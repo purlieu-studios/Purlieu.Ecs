@@ -3,6 +3,10 @@ using PurlieuEcs.Components;
 using PurlieuEcs.Core;
 using PurlieuEcs.Events;
 using PurlieuEcs.Systems;
+using Purlieu.Logic.Components;
+using Purlieu.Logic.Events;
+using Purlieu.Logic.Systems;
+using Purlieu.Logic;
 
 namespace PurlieuEcs.Tests.Core;
 
@@ -16,6 +20,7 @@ public class IT_QuerySystemTests
     public void Setup()
     {
         _world = new World();
+        LogicBootstrap.RegisterComponents(_world);
         _scheduler = new SystemScheduler();
     }
     
@@ -23,15 +28,15 @@ public class IT_QuerySystemTests
     public void Query_WithMultipleComponents_ReturnsCorrectEntities()
     {
         var e1 = _world.CreateEntity();
-        _world.AddComponent(e1, new Position(10, 20));
-        _world.AddComponent(e1, new MoveIntent(1, 0));
+        _world.AddComponent(e1, new Position(10, 20, 0));
+        _world.AddComponent(e1, new MoveIntent(1, 0, 0));
         
         var e2 = _world.CreateEntity();
-        _world.AddComponent(e2, new Position(30, 40));
+        _world.AddComponent(e2, new Position(30, 40, 0));
         
         var e3 = _world.CreateEntity();
-        _world.AddComponent(e3, new Position(50, 60));
-        _world.AddComponent(e3, new MoveIntent(0, 1));
+        _world.AddComponent(e3, new Position(50, 60, 0));
+        _world.AddComponent(e3, new MoveIntent(0, 1, 0));
         _world.AddComponent(e3, new Stunned());
         
         var query = _world.Query()
@@ -55,12 +60,12 @@ public class IT_QuerySystemTests
         _scheduler.RegisterSystem(movementSystem);
         
         var entity = _world.CreateEntity();
-        _world.AddComponent(entity, new Position(10, 10));
-        _world.AddComponent(entity, new MoveIntent(5, -3));
+        _world.AddComponent(entity, new Position(10, 10, 0));
+        _world.AddComponent(entity, new MoveIntent(5, -3, 0));
         
-        var eventChannel = _world.Events<PositionChangedIntent>();
+        var eventChannel = _world.Events<PositionChangedEvent>();
         int eventCount = 0;
-        PositionChangedIntent lastEvent = default;
+        PositionChangedEvent lastEvent = default;
         
         _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
         
@@ -71,8 +76,8 @@ public class IT_QuerySystemTests
         });
         
         Assert.That(eventCount, Is.EqualTo(1), "Should emit one position changed event");
-        Assert.That(lastEvent.X, Is.EqualTo(15), "X position should be updated");
-        Assert.That(lastEvent.Y, Is.EqualTo(7), "Y position should be updated");
+        Assert.That(lastEvent.NewX, Is.EqualTo(15), "X position should be updated");
+        Assert.That(lastEvent.NewY, Is.EqualTo(7), "Y position should be updated");
         
         var pos = _world.GetComponent<Position>(entity);
         Assert.That(pos.X, Is.EqualTo(15), "Entity position X should be updated");
@@ -86,8 +91,8 @@ public class IT_QuerySystemTests
         _scheduler.RegisterSystem(movementSystem);
         
         var entity = _world.CreateEntity();
-        _world.AddComponent(entity, new Position(10, 10));
-        _world.AddComponent(entity, new MoveIntent(5, -3));
+        _world.AddComponent(entity, new Position(10, 10, 0));
+        _world.AddComponent(entity, new MoveIntent(5, -3, 0));
         _world.AddComponent(entity, new Stunned());
         
         _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
@@ -111,10 +116,10 @@ public class IT_QuerySystemTests
         for (int i = 0; i < entityCount; i++)
         {
             var entity = _world.CreateEntity();
-            _world.AddComponent(entity, new Position(i, i * 2));
+            _world.AddComponent(entity, new Position(i, i * 2, 0));
             if (i % 2 == 0)
             {
-                _world.AddComponent(entity, new MoveIntent(1, 1));
+                _world.AddComponent(entity, new MoveIntent(1, 1, 0));
             }
         }
         

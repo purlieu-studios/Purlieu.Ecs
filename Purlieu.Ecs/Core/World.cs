@@ -58,16 +58,8 @@ public sealed class World
     /// </summary>
     private void RegisterComponentTypes()
     {
-        // Register core components
-        ComponentRegistry.Register<Components.Position>();
-        ComponentRegistry.Register<Components.MoveIntent>();
-        ComponentRegistry.Register<Components.Stunned>();
-        
-        // Register events
-        ComponentRegistry.Register<Events.PositionChangedIntent>();
-        
-        // Additional component registrations can be added here
-        // or through a public API for user-defined components
+        // Note: Game-specific components should be registered in the Logic layer
+        // This method is available for ECS framework-specific registrations
     }
     
     /// <summary>

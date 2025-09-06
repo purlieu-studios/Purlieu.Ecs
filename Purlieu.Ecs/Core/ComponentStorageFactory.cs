@@ -71,18 +71,12 @@ internal static class ComponentStorageFactory
     /// </summary>
     static ComponentStorageFactory()
     {
-        // Auto-register common component types to avoid reflection
-        Register<Components.Position>();
-        Register<Components.MoveIntent>();
-        Register<Components.Stunned>();
-        
-        // Register event types  
-        Register<Events.PositionChangedIntent>();
-        
         // Auto-register test component types for benchmarks/tests
         Register<TestComponentA>();
         Register<TestComponentB>();
         Register<TestComponentC>();
+        
+        // Note: Game-specific components should be registered in the Logic layer
     }
 }
 

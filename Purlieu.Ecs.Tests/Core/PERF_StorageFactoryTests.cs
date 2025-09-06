@@ -3,6 +3,8 @@ using PurlieuEcs.Core;
 using PurlieuEcs.Components;
 using System;
 using System.Diagnostics;
+using Purlieu.Logic.Components;
+using Purlieu.Logic;
 
 namespace Purlieu.Ecs.Tests.Core;
 
@@ -10,6 +12,13 @@ namespace Purlieu.Ecs.Tests.Core;
 [Category("Performance")]
 public class PERF_StorageFactoryTests
 {
+    [SetUp]
+    public void Setup()
+    {
+        var world = new World();
+        LogicBootstrap.RegisterComponents(world);
+    }
+
     [Test]
     public void ComponentStorageFactory_EliminatesReflection()
     {

@@ -3,11 +3,15 @@ Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.14.36301.6
 MinimumVisualStudioVersion = 10.0.40219.1
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Purlieu.Ecs", "src\Purlieu.Ecs\Purlieu.Ecs.csproj", "{632ADEE7-4D19-4308-B16C-E084913A7EC1}"
-EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Purlieu.Ecs.Tests", "Purlieu.Ecs.Tests\Purlieu.Ecs.Tests.csproj", "{9557A365-1604-4783-9BB8-8F1E2BBE541F}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Purlieu.Ecs.Benchmarks", "Purlieu.Ecs.Benchmarks\Purlieu.Ecs.Benchmarks.csproj", "{0675E121-DD8E-459E-47C3-F9AE53D55CCF}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Purlieu.Ecs", "Purlieu.Ecs\Purlieu.Ecs.csproj", "{8EBC3D6B-294E-70AA-C5D0-3FE36497E862}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Purlieu.Logic", "Purlieu.Logic\Purlieu.Logic.csproj", "{A1B2C3D4-E5F6-7890-ABCD-123456789012}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Purlieu.Logic.Tests", "Purlieu.Logic.Tests\Purlieu.Logic.Tests.csproj", "{B2C3D4E5-F6A7-8901-BCDE-234567890123}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -15,10 +19,6 @@ Global
 		Release|Any CPU = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(ProjectConfigurationPlatforms) = postSolution
-		{632ADEE7-4D19-4308-B16C-E084913A7EC1}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{632ADEE7-4D19-4308-B16C-E084913A7EC1}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{632ADEE7-4D19-4308-B16C-E084913A7EC1}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{632ADEE7-4D19-4308-B16C-E084913A7EC1}.Release|Any CPU.Build.0 = Release|Any CPU
 		{9557A365-1604-4783-9BB8-8F1E2BBE541F}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
 		{9557A365-1604-4783-9BB8-8F1E2BBE541F}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{9557A365-1604-4783-9BB8-8F1E2BBE541F}.Release|Any CPU.ActiveCfg = Release|Any CPU
@@ -27,6 +27,18 @@ Global
 		{0675E121-DD8E-459E-47C3-F9AE53D55CCF}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{0675E121-DD8E-459E-47C3-F9AE53D55CCF}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{0675E121-DD8E-459E-47C3-F9AE53D55CCF}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8EBC3D6B-294E-70AA-C5D0-3FE36497E862}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8EBC3D6B-294E-70AA-C5D0-3FE36497E862}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8EBC3D6B-294E-70AA-C5D0-3FE36497E862}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8EBC3D6B-294E-70AA-C5D0-3FE36497E862}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-123456789012}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-123456789012}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-123456789012}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-123456789012}.Release|Any CPU.Build.0 = Release|Any CPU
+		{B2C3D4E5-F6A7-8901-BCDE-234567890123}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{B2C3D4E5-F6A7-8901-BCDE-234567890123}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{B2C3D4E5-F6A7-8901-BCDE-234567890123}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{B2C3D4E5-F6A7-8901-BCDE-234567890123}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

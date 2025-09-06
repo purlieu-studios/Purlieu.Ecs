@@ -2,6 +2,7 @@ using NUnit.Framework;
 using PurlieuEcs.Components;
 using PurlieuEcs.Core;
 using PurlieuEcs.Snapshot;
+using Purlieu.Logic.Components;
 
 namespace PurlieuEcs.Tests.Core;
 
@@ -22,11 +23,11 @@ public class SNAP_SnapshotTests
     public void Snapshot_CaptureAndRestore_PreservesWorldState()
     {
         var e1 = _world.CreateEntity();
-        _world.AddComponent(e1, new Position(10, 20));
+        _world.AddComponent(e1, new Position(10, 20, 0));
         
         var e2 = _world.CreateEntity();
-        _world.AddComponent(e2, new Position(30, 40));
-        _world.AddComponent(e2, new MoveIntent(1, 2));
+        _world.AddComponent(e2, new Position(30, 40, 0));
+        _world.AddComponent(e2, new MoveIntent(1, 2, 0));
         
         var snapshotData = _snapshot.Capture(_world);
         
@@ -45,7 +46,7 @@ public class SNAP_SnapshotTests
         for (int i = 0; i < entityCount; i++)
         {
             var entity = _world.CreateEntity();
-            _world.AddComponent(entity, new Position(i, i));
+            _world.AddComponent(entity, new Position(i, i, 0));
         }
         
         var snapshotData = _snapshot.Capture(_world);
