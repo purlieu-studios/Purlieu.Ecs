@@ -65,10 +65,7 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
         var bitIndex = typeId % BitsPerElement;
         
         var newLength = Math.Max(_bits.Length, elementIndex + 1);
-        var newBits = new ulong[newLength];
-        
-        if (_bits.Length > 0)
-            Array.Copy(_bits, newBits, _bits.Length);
+        var newBits = SignatureArrayPool.Resize(_bits, newLength);
         
         newBits[elementIndex] |= 1UL << bitIndex;
         
@@ -95,8 +92,7 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
         if (elementIndex >= _bits.Length)
             return this;
         
-        var newBits = new ulong[_bits.Length];
-        Array.Copy(_bits, newBits, _bits.Length);
+        var newBits = SignatureArrayPool.Clone(_bits);
         
         newBits[elementIndex] &= ~(1UL << bitIndex);
         

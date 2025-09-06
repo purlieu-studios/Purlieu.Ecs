@@ -69,9 +69,8 @@ public sealed class Chunk
             var componentType = componentTypes[i];
             _typeToIndex[componentType] = i;
             
-            // Create generic storage using reflection (init-time only)
-            var storageType = typeof(ComponentStorage<>).MakeGenericType(componentType);
-            _componentStorages[i] = (IComponentStorage)Activator.CreateInstance(storageType, capacity)!;
+            // Create storage using factory (avoids reflection for registered types)
+            _componentStorages[i] = ComponentStorageFactory.Create(componentType, capacity);
         }
     }
     

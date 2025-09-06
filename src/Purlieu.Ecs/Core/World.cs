@@ -8,6 +8,10 @@ namespace PurlieuEcs.Core;
 /// </summary>
 public sealed class World
 {
+    // Optimized constants for chunk calculations (512 = 2^9)
+    private const int ChunkCapacity = 512;
+    private const int ChunkCapacityBits = 9; // log2(512)
+    private const int ChunkCapacityMask = ChunkCapacity - 1; // 511 for fast modulo
     private EntityRecord[] _entities;
     private int _entityCapacity;
     private readonly Queue<uint> _freeIds;
@@ -16,6 +20,7 @@ public sealed class World
     internal readonly Dictionary<ArchetypeSignature, Archetype> _signatureToArchetype;
     private readonly Dictionary<ulong, Archetype> _idToArchetype;
     internal readonly List<Archetype> _allArchetypes; // Direct list for allocation-free iteration
+    internal readonly ArchetypeIndex _archetypeIndex; // High-performance query index
     private ulong _nextArchetypeId;
     
     private readonly Dictionary<Type, object> _eventChannels;
@@ -31,6 +36,7 @@ public sealed class World
         _signatureToArchetype = new Dictionary<ArchetypeSignature, Archetype>(capacity: 64);
         _idToArchetype = new Dictionary<ulong, Archetype>(capacity: 64);
         _allArchetypes = new List<Archetype>(capacity: 64);
+        _archetypeIndex = new ArchetypeIndex(expectedArchetypes: 64);
         _nextArchetypeId = 1; // 0 is reserved for empty archetype
         
         _eventChannels = new Dictionary<Type, object>(capacity: 32);
@@ -44,6 +50,7 @@ public sealed class World
         _signatureToArchetype[emptySignature] = emptyArchetype;
         _idToArchetype[0] = emptyArchetype;
         _allArchetypes.Add(emptyArchetype);
+        _archetypeIndex.AddArchetype(emptyArchetype);
     }
     
     /// <summary>
@@ -166,6 +173,7 @@ public sealed class World
         _signatureToArchetype[signature] = archetype;
         _idToArchetype[id] = archetype;
         _allArchetypes.Add(archetype);
+        _archetypeIndex.AddArchetype(archetype);
         
         return archetype;
     }
@@ -185,6 +193,7 @@ public sealed class World
     public void RegisterComponent<T>() where T : struct
     {
         ComponentRegistry.Register<T>();
+        ComponentStorageFactory.Register<T>();
     }
     
     /// <summary>
@@ -269,9 +278,9 @@ public sealed class World
         if (!archetype.Signature.Has<T>())
             throw new ArgumentException($"Entity does not have component {typeof(T).Name}", nameof(entity));
         
-        // Find the chunk containing this entity
-        int chunkIndex = record.Row / 512; // Assuming chunk capacity of 512
-        int localRow = record.Row % 512;
+        // Find the chunk containing this entity using fast bit operations
+        int chunkIndex = record.Row >> ChunkCapacityBits; // Fast division by 512
+        int localRow = record.Row & ChunkCapacityMask; // Fast modulo 512
         
         var chunks = archetype.GetChunks();
         if (chunkIndex < chunks.Count)
@@ -313,10 +322,10 @@ public sealed class World
         // Copy component data from old to new archetype
         if (fromArchetype.Id != 0 && oldRow >= 0)
         {
-            int oldChunkIndex = oldRow / 512;
-            int oldLocalRow = oldRow % 512;
-            int newChunkIndex = newRow / 512;
-            int newLocalRow = newRow % 512;
+            int oldChunkIndex = oldRow >> ChunkCapacityBits;
+            int oldLocalRow = oldRow & ChunkCapacityMask;
+            int newChunkIndex = newRow >> ChunkCapacityBits;
+            int newLocalRow = newRow & ChunkCapacityMask;
             
             var oldChunks = fromArchetype.GetChunks();
             var newChunks = toArchetype.GetChunks();
@@ -358,8 +367,8 @@ public sealed class World
         // Set the new component if provided
         if (!EqualityComparer<T>.Default.Equals(newComponent, default(T)))
         {
-            int chunkIndex = newRow / 512;
-            int localRow = newRow % 512;
+            int chunkIndex = newRow >> ChunkCapacityBits;
+            int localRow = newRow & ChunkCapacityMask;
             
             var chunks = toArchetype.GetChunks();
             if (chunkIndex < chunks.Count)
@@ -387,55 +396,32 @@ public sealed class World
     }
     
     /// <summary>
-    /// Gets all chunks that match the specified component requirements.
-    /// TODO: Optimize with archetype registry using bitset indexing for O(1) lookup instead of O(archetypes)
+    /// Gets all chunks that match the specified component requirements using O(1) archetype index.
     /// </summary>
     internal void GetMatchingChunks(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature, List<Chunk> results)
     {
         results.Clear();
         
-        foreach (var archetype in _signatureToArchetype.Values)
+        var matchingArchetypes = _archetypeIndex.GetMatchingArchetypes(withSignature, withoutSignature);
+        var enumerator = matchingArchetypes.GetChunks();
+        
+        while (enumerator.MoveNext())
         {
-            // Check if archetype has all required components
-            if (!archetype.Signature.IsSupersetOf(withSignature))
-                continue;
-                
-            // Optimized: Use bitwise operations to check forbidden components
-            // Check if archetype signature intersects with forbidden signature
-            if (archetype.Signature.HasIntersection(withoutSignature))
-                continue;
-                
-            // Add all chunks from this archetype that have entities
-            foreach (var chunk in archetype.GetChunks())
-            {
-                if (chunk.Count > 0)
-                    results.Add(chunk);
-            }
+            results.Add(enumerator.Current);
         }
     }
     
     /// <summary>
-    /// Gets matching chunks as an enumerable (uses yield, minimal allocation).
+    /// Gets matching chunks as an enumerable using O(1) archetype index.
     /// </summary>
     internal IEnumerable<Chunk> GetMatchingChunks(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature)
     {
-        foreach (var archetype in _signatureToArchetype.Values)
+        var matchingArchetypes = _archetypeIndex.GetMatchingArchetypes(withSignature, withoutSignature);
+        var enumerator = matchingArchetypes.GetChunks();
+        
+        while (enumerator.MoveNext())
         {
-            // Check if archetype has all required components
-            if (!archetype.Signature.IsSupersetOf(withSignature))
-                continue;
-                
-            // Optimized: Use bitwise operations to check forbidden components
-            // Check if archetype signature intersects with forbidden signature
-            if (archetype.Signature.HasIntersection(withoutSignature))
-                continue;
-                
-            // Return all chunks from this archetype that have entities
-            foreach (var chunk in archetype.GetChunks())
-            {
-                if (chunk.Count > 0)
-                    yield return chunk;
-            }
+            yield return enumerator.Current;
         }
     }
     
