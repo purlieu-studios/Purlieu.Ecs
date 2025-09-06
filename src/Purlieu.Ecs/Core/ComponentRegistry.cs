@@ -24,7 +24,8 @@ internal sealed class ComponentOperations<T> : IComponentOperations where T : st
     
     public ComponentOperations()
     {
-        _hasOneFrameAttribute = typeof(T).GetCustomAttributes(typeof(Components.OneFrameAttribute), false).Length > 0;
+        // Cache attribute check to avoid repeated reflection
+        _hasOneFrameAttribute = Attribute.IsDefined(typeof(T), typeof(Components.OneFrameAttribute));
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -45,8 +46,8 @@ internal sealed class ComponentOperations<T> : IComponentOperations where T : st
 /// </summary>
 internal static class ComponentRegistry
 {
-    private static readonly Dictionary<Type, IComponentOperations> _operations = new();
-    private static readonly HashSet<Type> _oneFrameComponents = new();
+    private static readonly Dictionary<Type, IComponentOperations> _operations = new(capacity: 32);
+    private static readonly HashSet<Type> _oneFrameComponents = new(capacity: 16);
     
     /// <summary>
     /// Registers a component type with its operations.

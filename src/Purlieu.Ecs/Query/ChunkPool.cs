@@ -4,48 +4,40 @@ using PurlieuEcs.Core;
 namespace PurlieuEcs.Query;
 
 /// <summary>
-/// Pool for reusing chunk collections to avoid allocations.
+/// Thread-local pool for reusing chunk collections to avoid allocations.
 /// </summary>
 internal static class ChunkPool
 {
-    private static readonly Stack<List<Chunk>> _listPool = new(capacity: 16);
-    private static readonly object _poolLock = new object();
+    [ThreadStatic]
+    private static List<Chunk>? _threadLocalList;
     
     /// <summary>
-    /// Rents a list from the pool.
+    /// Rents a list from the thread-local pool.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static List<Chunk> RentList()
     {
-        lock (_poolLock)
+        var list = _threadLocalList;
+        if (list != null)
         {
-            if (_listPool.Count > 0)
-            {
-                var list = _listPool.Pop();
-                list.Clear();
-                return list;
-            }
+            _threadLocalList = null; // Remove from pool
+            list.Clear();
+            return list;
         }
         
-        return new List<Chunk>(capacity: 16);
+        return new List<Chunk>(capacity: 32); // Pre-size to avoid growth
     }
     
     /// <summary>
-    /// Returns a list to the pool.
+    /// Returns a list to the thread-local pool.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void ReturnList(List<Chunk> list)
     {
-        if (list.Capacity <= 128) // Don't pool very large lists
+        if (list.Capacity <= 128 && _threadLocalList == null) // Only pool one list per thread
         {
             list.Clear();
-            lock (_poolLock)
-            {
-                if (_listPool.Count < 16) // Limit pool size
-                {
-                    _listPool.Push(list);
-                }
-            }
+            _threadLocalList = list;
         }
     }
 }

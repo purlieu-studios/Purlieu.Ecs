@@ -13,8 +13,9 @@ public sealed class World
     private readonly Queue<uint> _freeIds;
     private uint _nextEntityId;
     
-    private readonly Dictionary<ArchetypeSignature, Archetype> _signatureToArchetype;
+    internal readonly Dictionary<ArchetypeSignature, Archetype> _signatureToArchetype;
     private readonly Dictionary<ulong, Archetype> _idToArchetype;
+    internal readonly List<Archetype> _allArchetypes; // Direct list for allocation-free iteration
     private ulong _nextArchetypeId;
     
     private readonly Dictionary<Type, object> _eventChannels;
@@ -26,11 +27,13 @@ public sealed class World
         _freeIds = new Queue<uint>();
         _nextEntityId = 1; // 0 is reserved for invalid
         
-        _signatureToArchetype = new Dictionary<ArchetypeSignature, Archetype>();
-        _idToArchetype = new Dictionary<ulong, Archetype>();
+        // Pre-allocate dictionaries to avoid growth allocations
+        _signatureToArchetype = new Dictionary<ArchetypeSignature, Archetype>(capacity: 64);
+        _idToArchetype = new Dictionary<ulong, Archetype>(capacity: 64);
+        _allArchetypes = new List<Archetype>(capacity: 64);
         _nextArchetypeId = 1; // 0 is reserved for empty archetype
         
-        _eventChannels = new Dictionary<Type, object>();
+        _eventChannels = new Dictionary<Type, object>(capacity: 32);
         
         // Register common component types to avoid reflection later
         RegisterComponentTypes();
@@ -40,6 +43,7 @@ public sealed class World
         var emptyArchetype = new Archetype(0, emptySignature, Array.Empty<Type>());
         _signatureToArchetype[emptySignature] = emptyArchetype;
         _idToArchetype[0] = emptyArchetype;
+        _allArchetypes.Add(emptyArchetype);
     }
     
     /// <summary>
@@ -161,6 +165,7 @@ public sealed class World
         archetype = new Archetype(id, signature, componentTypes);
         _signatureToArchetype[signature] = archetype;
         _idToArchetype[id] = archetype;
+        _allArchetypes.Add(archetype);
         
         return archetype;
     }
@@ -198,7 +203,15 @@ public sealed class World
             return;
         
         var newSignature = currentArchetype.Signature.Add<T>();
-        var newComponentTypes = currentArchetype.ComponentTypes.Concat(new[] { typeof(T) }).ToArray();
+        
+        // Create new component types array without LINQ allocations
+        var oldTypes = currentArchetype.ComponentTypes;
+        var newComponentTypes = new Type[oldTypes.Count + 1];
+        for (int i = 0; i < oldTypes.Count; i++)
+        {
+            newComponentTypes[i] = oldTypes[i];
+        }
+        newComponentTypes[oldTypes.Count] = typeof(T);
         
         var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
         
@@ -221,7 +234,20 @@ public sealed class World
             return; // Entity doesn't have this component
             
         var newSignature = currentArchetype.Signature.Remove<T>();
-        var newComponentTypes = currentArchetype.ComponentTypes.Where(t => t != typeof(T)).ToArray();
+        
+        // Create new component types array without LINQ allocations
+        var oldTypes = currentArchetype.ComponentTypes;
+        var targetType = typeof(T);
+        var newComponentTypes = new Type[oldTypes.Count - 1];
+        int writeIndex = 0;
+        
+        for (int i = 0; i < oldTypes.Count; i++)
+        {
+            if (oldTypes[i] != targetType)
+            {
+                newComponentTypes[writeIndex++] = oldTypes[i];
+            }
+        }
         
         var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
         
@@ -301,9 +327,23 @@ public sealed class World
                 var newChunk = newChunks[newChunkIndex];
                 
                 // Copy each component that exists in both archetypes
+                // Avoid LINQ Contains() call for better performance
+                var toComponentTypes = toArchetype.ComponentTypes;
+                
                 foreach (var componentType in fromArchetype.ComponentTypes)
                 {
-                    if (toArchetype.ComponentTypes.Contains(componentType))
+                    // Manual search to avoid potential LINQ allocations
+                    bool found = false;
+                    for (int i = 0; i < toComponentTypes.Count; i++)
+                    {
+                        if (toComponentTypes[i] == componentType)
+                        {
+                            found = true;
+                            break;
+                        }
+                    }
+                    
+                    if (found)
                     {
                         ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
                     }
@@ -370,6 +410,31 @@ public sealed class World
             {
                 if (chunk.Count > 0)
                     results.Add(chunk);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Gets matching chunks as an enumerable (uses yield, minimal allocation).
+    /// </summary>
+    internal IEnumerable<Chunk> GetMatchingChunks(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature)
+    {
+        foreach (var archetype in _signatureToArchetype.Values)
+        {
+            // Check if archetype has all required components
+            if (!archetype.Signature.IsSupersetOf(withSignature))
+                continue;
+                
+            // Optimized: Use bitwise operations to check forbidden components
+            // Check if archetype signature intersects with forbidden signature
+            if (archetype.Signature.HasIntersection(withoutSignature))
+                continue;
+                
+            // Return all chunks from this archetype that have entities
+            foreach (var chunk in archetype.GetChunks())
+            {
+                if (chunk.Count > 0)
+                    yield return chunk;
             }
         }
     }

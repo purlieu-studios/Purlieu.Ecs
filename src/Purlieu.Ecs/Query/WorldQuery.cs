@@ -50,6 +50,14 @@ public sealed class WorldQuery
     }
     
     /// <summary>
+    /// Iterates over all matching chunks with zero intermediate allocation.
+    /// </summary>
+    public DirectChunkEnumerable ChunksStack()
+    {
+        return new DirectChunkEnumerable(_world, _withSignature, _withoutSignature);
+    }
+    
+    /// <summary>
     /// Gets the first matching chunk, or null if none found.
     /// </summary>
     public Chunk? FirstChunk()

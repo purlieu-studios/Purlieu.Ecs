@@ -23,8 +23,8 @@ internal sealed class Archetype
         _id = id;
         _signature = signature;
         _componentTypes = componentTypes;
-        _componentTypeToIndex = new Dictionary<Type, int>();
-        _chunks = new List<Chunk>();
+        _componentTypeToIndex = new Dictionary<Type, int>(capacity: componentTypes.Length);
+        _chunks = new List<Chunk>(capacity: 4); // Pre-allocate chunk list
         _chunkCapacity = chunkCapacity;
         
         for (int i = 0; i < componentTypes.Length; i++)
