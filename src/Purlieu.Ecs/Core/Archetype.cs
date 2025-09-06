@@ -75,12 +75,12 @@ internal sealed class Archetype
     /// <summary>
     /// Removes an entity from this archetype.
     /// </summary>
-    public void RemoveEntity(Entity entity, int row)
+    public Entity RemoveEntity(Entity entity, int row)
     {
         // Empty archetype doesn't have chunks
         if (_componentTypes.Length == 0)
         {
-            return;
+            return Entity.Invalid;
         }
         
         // Find chunk containing this row
@@ -89,14 +89,16 @@ internal sealed class Archetype
         
         if (chunkIndex < _chunks.Count)
         {
-            _chunks[chunkIndex].RemoveEntity(localRow);
+            return _chunks[chunkIndex].RemoveEntity(localRow);
         }
+        
+        return Entity.Invalid;
     }
     
     /// <summary>
     /// Gets all chunks in this archetype.
     /// </summary>
-    public IEnumerable<Chunk> GetChunks()
+    public List<Chunk> GetChunks()
     {
         return _chunks;
     }

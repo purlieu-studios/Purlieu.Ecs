@@ -111,7 +111,14 @@ public sealed class World
         // Clear from archetype if it has one
         if (record.ArchetypeId != 0 && _idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
         {
-            archetype.RemoveEntity(entity, record.Row);
+            var swappedEntity = archetype.RemoveEntity(entity, record.Row);
+            
+            // If an entity was swapped to fill the removed entity's slot, update its record
+            if (swappedEntity != Entity.Invalid && swappedEntity != entity)
+            {
+                ref var swappedRecord = ref GetRecord(swappedEntity);
+                swappedRecord.Row = record.Row; // The swapped entity now has the destroyed entity's row index
+            }
         }
         
         // Mark as destroyed by incrementing version
@@ -240,8 +247,8 @@ public sealed class World
         int chunkIndex = record.Row / 512; // Assuming chunk capacity of 512
         int localRow = record.Row % 512;
         
-        var chunks = archetype.GetChunks() as List<Chunk>;
-        if (chunks != null && chunkIndex < chunks.Count)
+        var chunks = archetype.GetChunks();
+        if (chunkIndex < chunks.Count)
         {
             var chunk = chunks[chunkIndex];
             if (chunk.HasComponent<T>())
@@ -285,10 +292,10 @@ public sealed class World
             int newChunkIndex = newRow / 512;
             int newLocalRow = newRow % 512;
             
-            var oldChunks = fromArchetype.GetChunks() as List<Chunk>;
-            var newChunks = toArchetype.GetChunks() as List<Chunk>;
+            var oldChunks = fromArchetype.GetChunks();
+            var newChunks = toArchetype.GetChunks();
             
-            if (oldChunks != null && newChunks != null && oldChunkIndex < oldChunks.Count && newChunkIndex < newChunks.Count)
+            if (oldChunkIndex < oldChunks.Count && newChunkIndex < newChunks.Count)
             {
                 var oldChunk = oldChunks[oldChunkIndex];
                 var newChunk = newChunks[newChunkIndex];
@@ -314,8 +321,8 @@ public sealed class World
             int chunkIndex = newRow / 512;
             int localRow = newRow % 512;
             
-            var chunks = toArchetype.GetChunks() as List<Chunk>;
-            if (chunks != null && chunkIndex < chunks.Count)
+            var chunks = toArchetype.GetChunks();
+            if (chunkIndex < chunks.Count)
             {
                 var chunk = chunks[chunkIndex];
                 if (chunk.HasComponent<T>())
@@ -325,10 +332,17 @@ public sealed class World
             }
         }
         
-        // Remove from old archetype
+        // Remove from old archetype and handle entity swapping
         if (fromArchetype.Id != 0 && oldRow >= 0)
         {
-            fromArchetype.RemoveEntity(entity, oldRow);
+            var swappedEntity = fromArchetype.RemoveEntity(entity, oldRow);
+            
+            // If an entity was swapped to fill the removed entity's slot, update its record
+            if (swappedEntity != Entity.Invalid && swappedEntity != entity)
+            {
+                ref var swappedRecord = ref GetRecord(swappedEntity);
+                swappedRecord.Row = oldRow; // The swapped entity now has the old row index
+            }
         }
     }
     
@@ -336,8 +350,10 @@ public sealed class World
     /// Gets all chunks that match the specified component requirements.
     /// TODO: Optimize with archetype registry using bitset indexing for O(1) lookup instead of O(archetypes)
     /// </summary>
-    internal IEnumerable<Chunk> GetMatchingChunks(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature)
+    internal void GetMatchingChunks(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature, List<Chunk> results)
     {
+        results.Clear();
+        
         foreach (var archetype in _signatureToArchetype.Values)
         {
             // Check if archetype has all required components
@@ -349,11 +365,11 @@ public sealed class World
             if (archetype.Signature.HasIntersection(withoutSignature))
                 continue;
                 
-            // Return all chunks from this archetype that have entities
+            // Add all chunks from this archetype that have entities
             foreach (var chunk in archetype.GetChunks())
             {
                 if (chunk.Count > 0)
-                    yield return chunk;
+                    results.Add(chunk);
             }
         }
     }

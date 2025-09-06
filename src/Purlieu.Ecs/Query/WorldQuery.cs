@@ -40,11 +40,13 @@ public sealed class WorldQuery
     }
     
     /// <summary>
-    /// Iterates over all matching chunks.
+    /// Iterates over all matching chunks using pooled collections.
     /// </summary>
-    public ChunkCollection Chunks()
+    public PooledChunkCollection Chunks()
     {
-        return new ChunkCollection(_world.GetMatchingChunks(_withSignature, _withoutSignature));
+        var chunks = ChunkPool.RentList();
+        _world.GetMatchingChunks(_withSignature, _withoutSignature, chunks);
+        return new PooledChunkCollection(chunks);
     }
     
     /// <summary>
@@ -52,7 +54,9 @@ public sealed class WorldQuery
     /// </summary>
     public Chunk? FirstChunk()
     {
-        return _world.GetMatchingChunks(_withSignature, _withoutSignature).FirstOrDefault();
+        using var chunks = Chunks();
+        var enumerator = chunks.GetEnumerator();
+        return enumerator.MoveNext() ? enumerator.Current : null;
     }
     
     /// <summary>
@@ -60,7 +64,12 @@ public sealed class WorldQuery
     /// </summary>
     public int Count()
     {
-        return _world.GetMatchingChunks(_withSignature, _withoutSignature)
-                    .Sum(chunk => chunk.Count);
+        using var chunks = Chunks();
+        int count = 0;
+        foreach (var chunk in chunks)
+        {
+            count += chunk.Count;
+        }
+        return count;
     }
 }
