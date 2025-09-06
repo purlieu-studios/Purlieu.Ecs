@@ -42,9 +42,9 @@ public sealed class WorldQuery
     /// <summary>
     /// Iterates over all matching chunks.
     /// </summary>
-    public ChunkIterator Chunks()
+    public ChunkCollection Chunks()
     {
-        return ChunkIteratorPool.Rent(_world.GetMatchingChunks(_withSignature, _withoutSignature));
+        return new ChunkCollection(_world.GetMatchingChunks(_withSignature, _withoutSignature));
     }
     
     /// <summary>

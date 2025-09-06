@@ -32,11 +32,31 @@ public sealed class World
         
         _eventChannels = new Dictionary<Type, object>();
         
+        // Register common component types to avoid reflection later
+        RegisterComponentTypes();
+        
         // Create empty archetype
         var emptySignature = new ArchetypeSignature();
         var emptyArchetype = new Archetype(0, emptySignature, Array.Empty<Type>());
         _signatureToArchetype[emptySignature] = emptyArchetype;
         _idToArchetype[0] = emptyArchetype;
+    }
+    
+    /// <summary>
+    /// Registers known component types with the ComponentRegistry.
+    /// </summary>
+    private void RegisterComponentTypes()
+    {
+        // Register core components
+        ComponentRegistry.Register<Components.Position>();
+        ComponentRegistry.Register<Components.MoveIntent>();
+        ComponentRegistry.Register<Components.Stunned>();
+        
+        // Register events
+        ComponentRegistry.Register<Events.PositionChangedIntent>();
+        
+        // Additional component registrations can be added here
+        // or through a public API for user-defined components
     }
     
     /// <summary>
@@ -147,6 +167,15 @@ public sealed class World
     }
     
     /// <summary>
+    /// Registers a component type for optimized operations.
+    /// Call this for custom components to avoid reflection.
+    /// </summary>
+    public void RegisterComponent<T>() where T : struct
+    {
+        ComponentRegistry.Register<T>();
+    }
+    
+    /// <summary>
     /// Adds a component to an entity.
     /// </summary>
     public void AddComponent<T>(Entity entity, T component) where T : struct
@@ -211,8 +240,8 @@ public sealed class World
         int chunkIndex = record.Row / 512; // Assuming chunk capacity of 512
         int localRow = record.Row % 512;
         
-        var chunks = archetype.GetChunks().ToList();
-        if (chunkIndex < chunks.Count)
+        var chunks = archetype.GetChunks() as List<Chunk>;
+        if (chunks != null && chunkIndex < chunks.Count)
         {
             var chunk = chunks[chunkIndex];
             if (chunk.HasComponent<T>())
@@ -245,74 +274,48 @@ public sealed class World
         ref var record = ref GetRecord(entity);
         var oldRow = record.Row;
         
-        // Store old component data before moving (if needed)
-        Dictionary<Type, object> componentData = new Dictionary<Type, object>();
+        // Add entity to new archetype first
+        var newRow = toArchetype.AddEntity(entity);
+        
+        // Copy component data from old to new archetype
         if (fromArchetype.Id != 0 && oldRow >= 0)
         {
-            // Copy component data from old archetype
             int oldChunkIndex = oldRow / 512;
             int oldLocalRow = oldRow % 512;
-            var oldChunks = fromArchetype.GetChunks().ToList();
+            int newChunkIndex = newRow / 512;
+            int newLocalRow = newRow % 512;
             
-            if (oldChunkIndex < oldChunks.Count)
+            var oldChunks = fromArchetype.GetChunks() as List<Chunk>;
+            var newChunks = toArchetype.GetChunks() as List<Chunk>;
+            
+            if (oldChunks != null && newChunks != null && oldChunkIndex < oldChunks.Count && newChunkIndex < newChunks.Count)
             {
                 var oldChunk = oldChunks[oldChunkIndex];
+                var newChunk = newChunks[newChunkIndex];
                 
-                // Store each component that exists in both archetypes
+                // Copy each component that exists in both archetypes
                 foreach (var componentType in fromArchetype.ComponentTypes)
                 {
                     if (toArchetype.ComponentTypes.Contains(componentType))
                     {
-                        // Use reflection to get component data (only at migration time)
-                        var getSpanMethod = oldChunk.GetType().GetMethod("GetSpan").MakeGenericMethod(componentType);
-                        var span = getSpanMethod.Invoke(oldChunk, null);
-                        var spanType = span.GetType();
-                        var indexer = spanType.GetProperty("Item");
-                        var value = indexer.GetValue(span, new object[] { oldLocalRow });
-                        componentData[componentType] = value;
+                        ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
                     }
                 }
             }
         }
         
-        // Add entity to new archetype
-        var newRow = toArchetype.AddEntity(entity);
-        
         // Update entity record
         record.ArchetypeId = toArchetype.Id;
         record.Row = newRow;
         
-        // Restore component data to new archetype
-        if (componentData.Count > 0)
-        {
-            int newChunkIndex = newRow / 512;
-            int newLocalRow = newRow % 512;
-            var newChunks = toArchetype.GetChunks().ToList();
-            
-            if (newChunkIndex < newChunks.Count)
-            {
-                var newChunk = newChunks[newChunkIndex];
-                
-                foreach (var kvp in componentData)
-                {
-                    // Use reflection to set component data (only at migration time)
-                    var getSpanMethod = newChunk.GetType().GetMethod("GetSpan").MakeGenericMethod(kvp.Key);
-                    var span = getSpanMethod.Invoke(newChunk, null);
-                    var spanType = span.GetType();
-                    var indexer = spanType.GetProperty("Item");
-                    indexer.SetValue(span, kvp.Value, new object[] { newLocalRow });
-                }
-            }
-        }
-        
-        // Set the new component
+        // Set the new component if provided
         if (!EqualityComparer<T>.Default.Equals(newComponent, default(T)))
         {
             int chunkIndex = newRow / 512;
             int localRow = newRow % 512;
             
-            var chunks = toArchetype.GetChunks().ToList();
-            if (chunkIndex < chunks.Count)
+            var chunks = toArchetype.GetChunks() as List<Chunk>;
+            if (chunks != null && chunkIndex < chunks.Count)
             {
                 var chunk = chunks[chunkIndex];
                 if (chunk.HasComponent<T>())
@@ -376,19 +379,27 @@ public sealed class World
     /// </summary>
     public void ClearOneFrameData()
     {
-        // Clear one-frame events
+        // Clear one-frame events using cached attribute checks
         foreach (var kvp in _eventChannels)
         {
             var eventType = kvp.Key;
-            if (eventType.GetCustomAttribute<Components.OneFrameAttribute>() != null)
+            if (ComponentRegistry.IsOneFrame(eventType))
             {
-                var channel = kvp.Value;
-                var clearMethod = channel.GetType().GetMethod("Clear");
-                clearMethod?.Invoke(channel, null);
+                // Use dynamic dispatch since we have type-erased channels
+                if (kvp.Value is IEventChannel channel)
+                {
+                    channel.Clear();
+                }
             }
         }
         
-        // TODO: Clear one-frame components from all chunks
+        // Clear one-frame components from all chunks
+        var oneFrameTypes = ComponentRegistry.GetOneFrameComponents();
+        foreach (var componentType in oneFrameTypes)
+        {
+            // TODO: Implement component clearing from chunks
+            // This would require tracking which chunks contain one-frame components
+        }
     }
     
     /// <summary>

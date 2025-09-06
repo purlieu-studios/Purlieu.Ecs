@@ -3,9 +3,17 @@ using System.Runtime.CompilerServices;
 namespace PurlieuEcs.Events;
 
 /// <summary>
+/// Interface for type-erased event channel operations.
+/// </summary>
+internal interface IEventChannel
+{
+    void Clear();
+}
+
+/// <summary>
 /// Fixed-size ring buffer for high-performance event handling.
 /// </summary>
-public sealed class EventChannel<T> where T : struct
+public sealed class EventChannel<T> : IEventChannel where T : struct
 {
     private readonly T[] _events;
     private readonly int _capacity;

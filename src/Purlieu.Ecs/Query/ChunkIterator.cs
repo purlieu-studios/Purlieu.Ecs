@@ -1,29 +1,31 @@
-using System.Collections;
 using System.Runtime.CompilerServices;
 using PurlieuEcs.Core;
 
 namespace PurlieuEcs.Query;
 
 /// <summary>
-/// Pooled iterator for zero-allocation chunk traversal.
+/// Struct enumerator for zero-allocation chunk traversal.
 /// </summary>
-public struct ChunkIterator : IEnumerable<Chunk>, IEnumerator<Chunk>
+public struct ChunkEnumerator
 {
-    private readonly IEnumerator<Chunk> _source;
+    private readonly List<Chunk> _chunks;
+    private int _index;
     private Chunk? _current;
     
-    internal ChunkIterator(IEnumerable<Chunk> chunks)
+    internal ChunkEnumerator(List<Chunk> chunks)
     {
-        _source = chunks.GetEnumerator();
+        _chunks = chunks;
+        _index = -1;
         _current = null;
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool MoveNext()
     {
-        if (_source.MoveNext())
+        _index++;
+        if (_index < _chunks.Count)
         {
-            _current = _source.Current;
+            _current = _chunks[_index];
             return true;
         }
         
@@ -31,49 +33,33 @@ public struct ChunkIterator : IEnumerable<Chunk>, IEnumerator<Chunk>
         return false;
     }
     
-    public void Reset()
-    {
-        _source.Reset();
-        _current = null;
-    }
-    
-    public Chunk Current
+    public readonly Chunk Current
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        get => _current ?? throw new InvalidOperationException("Iterator not positioned");
+        get => _current ?? throw new InvalidOperationException("Enumerator not positioned");
     }
     
-    object IEnumerator.Current => Current;
-    
-    public void Dispose()
+    public void Reset()
     {
-        _source?.Dispose();
+        _index = -1;
+        _current = null;
     }
-    
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ChunkIterator GetEnumerator() => this;
-    
-    IEnumerator<Chunk> IEnumerable<Chunk>.GetEnumerator() => this;
-    
-    IEnumerator IEnumerable.GetEnumerator() => this;
 }
 
 /// <summary>
-/// Iterator pool to avoid allocations.
+/// Struct-based chunk collection for foreach support.
 /// </summary>
-internal static class ChunkIteratorPool
+public readonly struct ChunkCollection
 {
-    private static readonly Stack<ChunkIterator> _pool = new(capacity: 32);
+    private readonly List<Chunk> _chunks;
     
-    [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ChunkIterator Rent(IEnumerable<Chunk> chunks)
+    internal ChunkCollection(IEnumerable<Chunk> chunks)
     {
-        return new ChunkIterator(chunks);
+        _chunks = chunks as List<Chunk> ?? chunks.ToList();
     }
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Return(ChunkIterator iterator)
-    {
-        iterator.Dispose();
-    }
+    public ChunkEnumerator GetEnumerator() => new ChunkEnumerator(_chunks);
+    
+    public int Count => _chunks.Count;
 }

@@ -15,6 +15,11 @@ public class ALLOC_SimpleAllocationTests
     public void Setup()
     {
         _world = new World();
+        
+        // Register test components to avoid reflection
+        _world.RegisterComponent<TestComponentA>();
+        _world.RegisterComponent<TestComponentB>();
+        
         _entities = new Entity[1000];
         for (int i = 0; i < _entities.Length; i++)
         {
