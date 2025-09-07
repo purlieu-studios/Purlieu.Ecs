@@ -192,6 +192,28 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
         }
     }
     
+    /// <summary>
+    /// Gets all component types represented by this signature for bloom filter operations.
+    /// </summary>
+    public Type[] GetComponentTypes()
+    {
+        if (_bits.Length == 0)
+            return Array.Empty<Type>();
+        
+        var types = new List<Type>();
+        for (int i = 0; i < _bits.Length * BitsPerElement; i++)
+        {
+            if (Has(i))
+            {
+                var type = ComponentTypeId.GetType(i);
+                if (type != null)
+                    types.Add(type);
+            }
+        }
+        
+        return types.ToArray();
+    }
+    
     public override string ToString()
     {
         if (_bits.Length == 0)
@@ -215,6 +237,7 @@ public static class ComponentTypeId
 {
     private static int _nextId;
     private static readonly Dictionary<Type, int> _typeToId = new();
+    private static readonly Dictionary<int, Type> _idToType = new();
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int Get<T>() where T : struct
@@ -229,7 +252,13 @@ public static class ComponentTypeId
         
         id = _nextId++;
         _typeToId[type] = id;
+        _idToType[id] = type;
         return id;
+    }
+    
+    public static Type? GetType(int id)
+    {
+        return _idToType.TryGetValue(id, out var type) ? type : null;
     }
     
     private static class Cache<T> where T : struct

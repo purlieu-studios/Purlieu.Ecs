@@ -13,6 +13,7 @@ internal sealed class Archetype
     private readonly Dictionary<Type, int> _componentTypeToIndex;
     private readonly List<Chunk> _chunks;
     private readonly int _chunkCapacity;
+    private readonly ArchetypeBloomFilter _bloomFilter;
     
     public ulong Id => _id;
     public ArchetypeSignature Signature => _signature;
@@ -26,10 +27,12 @@ internal sealed class Archetype
         _componentTypeToIndex = new Dictionary<Type, int>(capacity: componentTypes.Length);
         _chunks = new List<Chunk>(capacity: 4); // Pre-allocate chunk list
         _chunkCapacity = chunkCapacity;
+        _bloomFilter = new ArchetypeBloomFilter(componentTypes.Length);
         
         for (int i = 0; i < componentTypes.Length; i++)
         {
             _componentTypeToIndex[componentTypes[i]] = i;
+            _bloomFilter.AddComponentType(componentTypes[i]);
         }
         
         // Don't create chunks for empty archetype (no components)
@@ -101,5 +104,21 @@ internal sealed class Archetype
     public List<Chunk> GetChunks()
     {
         return _chunks;
+    }
+    
+    /// <summary>
+    /// Quickly checks if this archetype might have a component (O(1) with possible false positives).
+    /// </summary>
+    public bool MightHaveComponent(Type componentType)
+    {
+        return _bloomFilter.MightHaveComponent(componentType);
+    }
+    
+    /// <summary>
+    /// Checks if this archetype might have all specified components.
+    /// </summary>
+    public bool MightHaveAllComponents(Type[] componentTypes)
+    {
+        return _bloomFilter.MightHaveAllComponents(componentTypes);
     }
 }
