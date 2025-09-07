@@ -2,6 +2,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Numerics;
 using System.Runtime.Intrinsics.X86;
+using System.Collections;
 
 namespace PurlieuEcs.Core;
 
@@ -376,6 +377,7 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : unmanage
 
 /// <summary>
 /// Stores entities and components in SoA layout for cache efficiency.
+/// Enhanced with dirty component tracking for selective processing.
 /// </summary>
 public sealed class Chunk
 {
@@ -386,6 +388,11 @@ public sealed class Chunk
     private readonly int _capacity;
     private int _count;
     
+    // Dirty tracking system using bitsets for efficient change detection
+    private readonly BitArray[] _dirtyBits;          // Per-component dirty bitsets
+    private readonly BitArray _entityDirtyBits;      // Per-entity dirty flags
+    private int _dirtyVersion;                       // Incremented on any change
+    
     public int Count => _count;
     public int Capacity => _capacity;
     
@@ -394,13 +401,18 @@ public sealed class Chunk
         _componentTypes = componentTypes;
         _capacity = capacity;
         _count = 0;
+        _dirtyVersion = 0;
         
         // Use cache-line aligned allocation for entities array
         _entities = CacheLineAlignedAllocator.AllocateAligned<Entity>(capacity);
         _componentStorages = new IComponentStorage[componentTypes.Length];
         _typeToIndex = new Dictionary<Type, int>();
         
-        // Create typed component storages
+        // Initialize dirty tracking system
+        _dirtyBits = new BitArray[componentTypes.Length];
+        _entityDirtyBits = new BitArray(capacity);
+        
+        // Create typed component storages and initialize dirty tracking
         for (int i = 0; i < componentTypes.Length; i++)
         {
             var componentType = componentTypes[i];
@@ -408,6 +420,9 @@ public sealed class Chunk
             
             // Create storage using factory (avoids reflection for registered types)
             _componentStorages[i] = ComponentStorageFactory.Create(componentType, capacity);
+            
+            // Initialize dirty bitset for this component type
+            _dirtyBits[i] = new BitArray(capacity);
         }
     }
     
@@ -562,6 +577,29 @@ public sealed class Chunk
     }
     
     /// <summary>
+    /// Gets a component reference for modification with automatic dirty tracking.
+    /// Use this when you intend to modify the component.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ref T GetComponentForWrite<T>(int row) where T : unmanaged
+    {
+        MarkDirty<T>(row);
+        var span = GetSpan<T>();
+        return ref span[row];
+    }
+    
+    /// <summary>
+    /// Gets a readonly component reference without dirty tracking.
+    /// Use this for read-only access to avoid unnecessary dirty flags.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ref readonly T GetComponentReadOnly<T>(int row) where T : unmanaged
+    {
+        var span = GetSpan<T>();
+        return ref span[row];
+    }
+    
+    /// <summary>
     /// Processes components using SIMD vectorization for maximum performance.
     /// Automatically handles both vectorized and remainder elements.
     /// </summary>
@@ -632,6 +670,168 @@ public sealed class Chunk
             var result = transform(vector);
             result.CopyTo(simdSpan.Slice(i, vectorSize));
         }
+    }
+    
+    /// <summary>
+    /// Marks a component as dirty for the specified entity row.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void MarkDirty<T>(int row) where T : unmanaged
+    {
+        var componentIndex = GetComponentIndex<T>();
+        if (componentIndex >= 0 && row < _count)
+        {
+            _dirtyBits[componentIndex][row] = true;
+            _entityDirtyBits[row] = true;
+            _dirtyVersion++;
+        }
+    }
+    
+    /// <summary>
+    /// Marks a component as dirty by type for the specified entity row.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void MarkDirty(Type componentType, int row)
+    {
+        if (_typeToIndex.TryGetValue(componentType, out var componentIndex) && row < _count)
+        {
+            _dirtyBits[componentIndex][row] = true;
+            _entityDirtyBits[row] = true;
+            _dirtyVersion++;
+        }
+    }
+    
+    /// <summary>
+    /// Checks if a component is dirty for the specified entity row.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsDirty<T>(int row) where T : unmanaged
+    {
+        var componentIndex = GetComponentIndex<T>();
+        return componentIndex >= 0 && row < _count && _dirtyBits[componentIndex][row];
+    }
+    
+    /// <summary>
+    /// Checks if a component is dirty by type for the specified entity row.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsDirty(Type componentType, int row)
+    {
+        return _typeToIndex.TryGetValue(componentType, out var componentIndex) && 
+               row < _count && _dirtyBits[componentIndex][row];
+    }
+    
+    /// <summary>
+    /// Checks if any component is dirty for the specified entity row.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsEntityDirty(int row)
+    {
+        return row < _count && _entityDirtyBits[row];
+    }
+    
+    /// <summary>
+    /// Clears dirty flags for a specific component type across all entities.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void ClearDirty<T>() where T : unmanaged
+    {
+        var componentIndex = GetComponentIndex<T>();
+        if (componentIndex >= 0)
+        {
+            _dirtyBits[componentIndex].SetAll(false);
+        }
+    }
+    
+    /// <summary>
+    /// Clears dirty flags for a specific component type across all entities.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void ClearDirty(Type componentType)
+    {
+        if (_typeToIndex.TryGetValue(componentType, out var componentIndex))
+        {
+            _dirtyBits[componentIndex].SetAll(false);
+        }
+    }
+    
+    /// <summary>
+    /// Clears all dirty flags for the specified entity row.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void ClearEntityDirty(int row)
+    {
+        if (row < _count)
+        {
+            _entityDirtyBits[row] = false;
+            for (int i = 0; i < _dirtyBits.Length; i++)
+            {
+                _dirtyBits[i][row] = false;
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Clears all dirty flags in the chunk.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void ClearAllDirty()
+    {
+        _entityDirtyBits.SetAll(false);
+        for (int i = 0; i < _dirtyBits.Length; i++)
+        {
+            _dirtyBits[i].SetAll(false);
+        }
+        _dirtyVersion++;
+    }
+    
+    /// <summary>
+    /// Gets entities that have dirty components of the specified type.
+    /// Returns an enumerable of entity rows with dirty components.
+    /// </summary>
+    public IEnumerable<int> GetDirtyRows<T>() where T : unmanaged
+    {
+        var componentIndex = GetComponentIndex<T>();
+        if (componentIndex >= 0)
+        {
+            for (int row = 0; row < _count; row++)
+            {
+                if (_dirtyBits[componentIndex][row])
+                {
+                    yield return row;
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Gets entities that have any dirty components.
+    /// Returns an enumerable of entity rows with any dirty component.
+    /// </summary>
+    public IEnumerable<int> GetDirtyEntityRows()
+    {
+        for (int row = 0; row < _count; row++)
+        {
+            if (_entityDirtyBits[row])
+            {
+                yield return row;
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Gets the current dirty version - incremented whenever any component is marked dirty.
+    /// Used for cache invalidation and change detection.
+    /// </summary>
+    public int DirtyVersion => _dirtyVersion;
+    
+    /// <summary>
+    /// Gets the component index for the specified type.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int GetComponentIndex<T>() where T : unmanaged
+    {
+        return _typeToIndex.TryGetValue(typeof(T), out var index) ? index : -1;
     }
 }
 

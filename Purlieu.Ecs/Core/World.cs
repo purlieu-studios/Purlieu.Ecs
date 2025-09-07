@@ -497,6 +497,137 @@ public sealed class World
     }
     
     /// <summary>
+    /// Marks a component as dirty for the specified entity.
+    /// </summary>
+    public void MarkComponentDirty<T>(Entity entity) where T : unmanaged
+    {
+        ref var record = ref GetRecord(entity);
+        if (record.ArchetypeId != 0)
+        {
+            if (_idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
+            {
+                var chunkIndex = record.Row >> ChunkCapacityBits; // Efficient division by 512
+                var localRow = record.Row & ChunkCapacityMask;   // Efficient modulo 512
+                var chunks = archetype.GetChunks();
+                if (chunkIndex < chunks.Count)
+                {
+                    chunks[chunkIndex].MarkDirty<T>(localRow);
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Checks if a component is dirty for the specified entity.
+    /// </summary>
+    public bool IsComponentDirty<T>(Entity entity) where T : unmanaged
+    {
+        ref var record = ref GetRecord(entity);
+        if (record.ArchetypeId != 0)
+        {
+            if (_idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
+            {
+                var chunkIndex = record.Row >> ChunkCapacityBits;
+                var localRow = record.Row & ChunkCapacityMask;
+                var chunks = archetype.GetChunks();
+                if (chunkIndex < chunks.Count)
+                {
+                    return chunks[chunkIndex].IsDirty<T>(localRow);
+                }
+            }
+        }
+        return false;
+    }
+    
+    /// <summary>
+    /// Checks if any component is dirty for the specified entity.
+    /// </summary>
+    public bool IsEntityDirty(Entity entity)
+    {
+        ref var record = ref GetRecord(entity);
+        if (record.ArchetypeId != 0)
+        {
+            if (_idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
+            {
+                var chunkIndex = record.Row >> ChunkCapacityBits;
+                var localRow = record.Row & ChunkCapacityMask;
+                var chunks = archetype.GetChunks();
+                if (chunkIndex < chunks.Count)
+                {
+                    return chunks[chunkIndex].IsEntityDirty(localRow);
+                }
+            }
+        }
+        return false;
+    }
+    
+    /// <summary>
+    /// Clears dirty flags for a specific component type across all entities.
+    /// </summary>
+    public void ClearDirtyFlags<T>() where T : unmanaged
+    {
+        foreach (var archetype in _allArchetypes)
+        {
+            foreach (var chunk in archetype.GetChunks())
+            {
+                chunk.ClearDirty<T>();
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Clears all dirty flags across all entities and components.
+    /// </summary>
+    public void ClearAllDirtyFlags()
+    {
+        foreach (var archetype in _allArchetypes)
+        {
+            foreach (var chunk in archetype.GetChunks())
+            {
+                chunk.ClearAllDirty();
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Gets all entities that have dirty components of the specified type.
+    /// </summary>
+    public IEnumerable<Entity> GetEntitiesWithDirtyComponent<T>() where T : unmanaged
+    {
+        foreach (var archetype in _allArchetypes)
+        {
+            var chunks = archetype.GetChunks();
+            for (int chunkIndex = 0; chunkIndex < chunks.Count; chunkIndex++)
+            {
+                var chunk = chunks[chunkIndex];
+                foreach (var row in chunk.GetDirtyRows<T>())
+                {
+                    yield return chunk.GetEntity(row);
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Gets all entities that have any dirty components.
+    /// </summary>
+    public IEnumerable<Entity> GetDirtyEntities()
+    {
+        foreach (var archetype in _allArchetypes)
+        {
+            var chunks = archetype.GetChunks();
+            for (int chunkIndex = 0; chunkIndex < chunks.Count; chunkIndex++)
+            {
+                var chunk = chunks[chunkIndex];
+                foreach (var row in chunk.GetDirtyEntityRows())
+                {
+                    yield return chunk.GetEntity(row);
+                }
+            }
+        }
+    }
+    
+    /// <summary>
     /// Tracks entity metadata.
     /// </summary>
     internal struct EntityRecord
