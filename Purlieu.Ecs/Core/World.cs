@@ -217,7 +217,7 @@ public sealed class World
     /// Registers a component type for optimized operations.
     /// Call this for custom components to avoid reflection.
     /// </summary>
-    public void RegisterComponent<T>() where T : struct
+    public void RegisterComponent<T>() where T : unmanaged
     {
         ComponentRegistry.Register<T>();
         ComponentStorageFactory.Register<T>();
@@ -226,7 +226,7 @@ public sealed class World
     /// <summary>
     /// Adds a component to an entity.
     /// </summary>
-    public void AddComponent<T>(Entity entity, T component) where T : struct
+    public void AddComponent<T>(Entity entity, T component) where T : unmanaged
     {
         if (!IsAlive(entity))
             return;
@@ -258,7 +258,7 @@ public sealed class World
     /// <summary>
     /// Removes a component from an entity.
     /// </summary>
-    public void RemoveComponent<T>(Entity entity) where T : struct
+    public void RemoveComponent<T>(Entity entity) where T : unmanaged
     {
         if (!IsAlive(entity))
             return;
@@ -294,7 +294,7 @@ public sealed class World
     /// <summary>
     /// Gets a component from an entity.
     /// </summary>
-    public ref T GetComponent<T>(Entity entity) where T : struct
+    public ref T GetComponent<T>(Entity entity) where T : unmanaged
     {
         if (!IsAlive(entity))
             throw new ArgumentException("Entity is not alive", nameof(entity));
@@ -325,7 +325,7 @@ public sealed class World
     /// <summary>
     /// Checks if an entity has a specific component.
     /// </summary>
-    public bool HasComponent<T>(Entity entity) where T : struct
+    public bool HasComponent<T>(Entity entity) where T : unmanaged
     {
         if (!IsAlive(entity))
             return false;
@@ -338,7 +338,7 @@ public sealed class World
     /// <summary>
     /// Moves an entity between archetypes when adding a component.
     /// </summary>
-    private void MoveEntityToArchetype<T>(Entity entity, Archetype fromArchetype, Archetype toArchetype, T newComponent = default) where T : struct
+    private void MoveEntityToArchetype<T>(Entity entity, Archetype fromArchetype, Archetype toArchetype, T newComponent = default) where T : unmanaged
     {
         ref var record = ref GetRecord(entity);
         var oldRow = record.Row;
@@ -455,7 +455,7 @@ public sealed class World
     /// <summary>
     /// Gets or creates an event channel for the specified event type.
     /// </summary>
-    public EventChannel<T> Events<T>() where T : struct
+    public EventChannel<T> Events<T>() where T : unmanaged
     {
         var type = typeof(T);
         if (!_eventChannels.TryGetValue(type, out var channel))

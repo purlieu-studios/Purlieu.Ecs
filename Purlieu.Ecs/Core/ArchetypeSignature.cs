@@ -180,6 +180,40 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
         return false;
     }
     
+    /// <summary>
+    /// Gets the count of components that intersect between this and another signature.
+    /// Used for spatial locality optimization calculations.
+    /// </summary>
+    public int GetIntersectionCount(ArchetypeSignature other)
+    {
+        int count = 0;
+        int minLength = Math.Min(_bits.Length, other._bits.Length);
+        
+        for (int i = 0; i < minLength; i++)
+        {
+            ulong intersection = _bits[i] & other._bits[i];
+            count += System.Numerics.BitOperations.PopCount(intersection);
+        }
+        
+        return count;
+    }
+    
+    /// <summary>
+    /// Gets the total count of components in this signature.
+    /// Used for spatial locality optimization calculations.
+    /// </summary>
+    public int GetComponentCount()
+    {
+        int count = 0;
+        
+        for (int i = 0; i < _bits.Length; i++)
+        {
+            count += System.Numerics.BitOperations.PopCount(_bits[i]);
+        }
+        
+        return count;
+    }
+    
     public bool Equals(ArchetypeSignature other)
     {
         if (_hashCode != other._hashCode)

@@ -31,11 +31,13 @@ internal sealed class ArchetypeIndex
     
     /// <summary>
     /// Adds an archetype to the index for fast lookup.
+    /// Uses spatial locality optimization to cluster related archetypes.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void AddArchetype(Archetype archetype)
     {
-        _allArchetypes.Add(archetype);
+        // Add to main list using spatial locality insertion
+        InsertWithSpatialLocality(archetype);
         
         // Index by signature hash for fast component-based lookups
         var signature = archetype.Signature;
@@ -213,6 +215,173 @@ internal sealed class ArchetypeIndex
         _cacheHits = 0;
         _cacheMisses = 0;
         _cacheInvalidations = 0;
+    }
+    
+    /// <summary>
+    /// Inserts archetype using spatial locality to cluster similar archetypes together.
+    /// This improves cache performance during archetype iteration.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private void InsertWithSpatialLocality(Archetype archetype)
+    {
+        if (_allArchetypes.Count == 0)
+        {
+            _allArchetypes.Add(archetype);
+            return;
+        }
+        
+        // Find the best insertion position based on component similarity
+        var bestPosition = FindBestInsertionPosition(archetype);
+        
+        if (bestPosition >= _allArchetypes.Count)
+        {
+            _allArchetypes.Add(archetype);
+        }
+        else
+        {
+            _allArchetypes.Insert(bestPosition, archetype);
+        }
+    }
+    
+    /// <summary>
+    /// Finds the optimal insertion position to maximize spatial locality.
+    /// Places archetypes with similar component sets near each other.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private int FindBestInsertionPosition(Archetype newArchetype)
+    {
+        if (_allArchetypes.Count <= 4)
+        {
+            // For small lists, append at the end (simple case)
+            return _allArchetypes.Count;
+        }
+        
+        int bestPosition = _allArchetypes.Count;
+        double bestSimilarity = -1.0;
+        
+        var newSignature = newArchetype.Signature;
+        var newComponentTypes = newArchetype.ComponentTypes;
+        
+        // Sample a subset of archetypes to balance performance vs. optimality
+        int sampleSize = Math.Min(16, _allArchetypes.Count);
+        int step = _allArchetypes.Count / sampleSize;
+        
+        for (int i = 0; i < sampleSize; i++)
+        {
+            int archetypeIndex = i * step;
+            if (archetypeIndex >= _allArchetypes.Count) break;
+            
+            var existingArchetype = _allArchetypes[archetypeIndex];
+            var similarity = CalculateArchetypeSimilarity(newSignature, newComponentTypes, 
+                                                        existingArchetype.Signature, existingArchetype.ComponentTypes);
+            
+            if (similarity > bestSimilarity)
+            {
+                bestSimilarity = similarity;
+                bestPosition = archetypeIndex + 1; // Insert after similar archetype
+            }
+        }
+        
+        return bestPosition;
+    }
+    
+    /// <summary>
+    /// Calculates similarity score between two archetypes for spatial locality optimization.
+    /// Higher score = more similar = should be placed closer together.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static double CalculateArchetypeSimilarity(ArchetypeSignature sig1, IReadOnlyList<Type> types1,
+                                                     ArchetypeSignature sig2, IReadOnlyList<Type> types2)
+    {
+        // 1. Component overlap score (Jaccard similarity)
+        var intersection = sig1.GetIntersectionCount(sig2);
+        var union = sig1.GetComponentCount() + sig2.GetComponentCount() - intersection;
+        
+        if (union == 0) return 0.0; // Both empty
+        
+        double jaccardSimilarity = (double)intersection / union;
+        
+        // 2. Size similarity score (prefer similar-sized archetypes)
+        int size1 = types1.Count;
+        int size2 = types2.Count;
+        int sizeDiff = Math.Abs(size1 - size2);
+        double sizeSimilarity = 1.0 / (1.0 + sizeDiff * 0.2); // Penalty for size differences
+        
+        // 3. Component type similarity (high-priority components get more weight)
+        double typeSimilarity = CalculateComponentTypeSimilarity(types1, types2);
+        
+        // Weighted combination of similarity factors
+        return (jaccardSimilarity * 0.5) + (sizeSimilarity * 0.2) + (typeSimilarity * 0.3);
+    }
+    
+    /// <summary>
+    /// Calculates similarity based on specific component types and their priorities.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static double CalculateComponentTypeSimilarity(IReadOnlyList<Type> types1, IReadOnlyList<Type> types2)
+    {
+        if (types1.Count == 0 || types2.Count == 0) return 0.0;
+        
+        double totalSimilarity = 0.0;
+        
+        // Find common high-priority component types
+        var commonHighPriority = 0;
+        var totalHighPriority = 0;
+        
+        foreach (var type1 in types1)
+        {
+            var priority1 = GetComponentPriority(type1);
+            if (priority1 >= 80) // High priority components
+            {
+                totalHighPriority++;
+                if (types2.Contains(type1))
+                {
+                    commonHighPriority++;
+                }
+            }
+        }
+        
+        foreach (var type2 in types2)
+        {
+            var priority2 = GetComponentPriority(type2);
+            if (priority2 >= 80 && !types1.Contains(type2))
+            {
+                totalHighPriority++;
+            }
+        }
+        
+        // High-priority component overlap bonus
+        if (totalHighPriority > 0)
+        {
+            totalSimilarity += (double)commonHighPriority / totalHighPriority;
+        }
+        
+        return Math.Min(1.0, totalSimilarity);
+    }
+    
+    /// <summary>
+    /// Gets component priority for spatial locality calculations.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int GetComponentPriority(Type componentType)
+    {
+        var typeName = componentType.Name;
+        
+        // High priority: Frequently accessed components that should be co-located
+        if (typeName.Contains("Position") || typeName.Contains("Transform") ||
+            typeName.Contains("Location") || typeName.Contains("Coord"))
+            return 100;
+            
+        if (typeName.Contains("Velocity") || typeName.Contains("Speed") ||
+            typeName.Contains("Move") || typeName.Contains("Motion"))
+            return 90;
+            
+        if (typeName.Contains("Health") || typeName.Contains("HP") ||
+            typeName.Contains("Damage") || typeName.Contains("Stats"))
+            return 80;
+        
+        // Lower priority components
+        return 50;
     }
 }
 

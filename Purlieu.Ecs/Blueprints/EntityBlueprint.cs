@@ -23,7 +23,7 @@ public sealed class EntityBlueprint
     /// Adds a component to the blueprint.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public EntityBlueprint With<T>(T component) where T : struct
+    public EntityBlueprint With<T>(T component) where T : unmanaged
     {
         _initializers.Add(new ComponentInitializer<T>(component));
         return this;
@@ -64,7 +64,7 @@ public sealed class EntityBlueprint
         void Apply(World world, Entity entity);
     }
     
-    private readonly struct ComponentInitializer<T> : IComponentInitializer where T : struct
+    private readonly struct ComponentInitializer<T> : IComponentInitializer where T : unmanaged
     {
         private readonly T _component;
         

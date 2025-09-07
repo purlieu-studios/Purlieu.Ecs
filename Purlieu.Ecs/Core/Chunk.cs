@@ -1,8 +1,147 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Numerics;
+using System.Runtime.Intrinsics.X86;
 
 namespace PurlieuEcs.Core;
+
+/// <summary>
+/// Provides cache-line aligned memory allocation for optimal performance.
+/// </summary>
+internal static class CacheLineAlignedAllocator
+{
+    // Cache line size is typically 64 bytes on most modern processors
+    public const int CacheLineSize = 64;
+    
+    /// <summary>
+    /// Allocates a cache-line aligned array for maximum memory performance.
+    /// </summary>
+    public static T[] AllocateAligned<T>(int capacity) where T : unmanaged
+    {
+        // Calculate how many elements fit in a cache line
+        var elementSize = Unsafe.SizeOf<T>();
+        var elementsPerCacheLine = Math.Max(1, CacheLineSize / elementSize);
+        
+        // Round capacity up to cache line boundary
+        var alignedCapacity = ((capacity + elementsPerCacheLine - 1) / elementsPerCacheLine) * elementsPerCacheLine;
+        
+        // For small arrays where alignment overhead > 50%, use regular allocation
+        if (capacity < 16 && (alignedCapacity - capacity) > capacity / 2)
+        {
+            return new T[capacity];
+        }
+        
+        return new T[alignedCapacity];
+    }
+    
+    /// <summary>
+    /// Gets the cache-line aligned capacity for a given element count.
+    /// </summary>
+    public static int GetAlignedCapacity<T>(int capacity) where T : unmanaged
+    {
+        var elementSize = Unsafe.SizeOf<T>();
+        var elementsPerCacheLine = Math.Max(1, CacheLineSize / elementSize);
+        return ((capacity + elementsPerCacheLine - 1) / elementsPerCacheLine) * elementsPerCacheLine;
+    }
+    
+    /// <summary>
+    /// Gets memory alignment information for debugging/profiling.
+    /// </summary>
+    public static (int ElementSize, int ElementsPerCacheLine, int AlignedCapacity, float Overhead) 
+        GetAlignmentInfo<T>(int capacity) where T : unmanaged
+    {
+        var elementSize = Unsafe.SizeOf<T>();
+        var elementsPerCacheLine = Math.Max(1, CacheLineSize / elementSize);
+        var alignedCapacity = GetAlignedCapacity<T>(capacity);
+        var overhead = alignedCapacity > capacity ? (alignedCapacity - capacity) / (float)capacity : 0f;
+        
+        return (elementSize, elementsPerCacheLine, alignedCapacity, overhead);
+    }
+}
+
+/// <summary>
+/// Provides hardware memory prefetching hints for optimal cache utilization.
+/// </summary>
+internal static class MemoryPrefetcher
+{
+    private const int CacheLineSize = 64;
+    
+    /// <summary>
+    /// Prefetches memory for temporal locality (data will be accessed multiple times).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static unsafe void PrefetchTemporal<T>(T[] array, int index) where T : unmanaged
+    {
+        if (Sse.IsSupported && index < array.Length)
+        {
+            fixed (T* ptr = &array[index])
+            {
+                // PREFETCHT0 - prefetch to all cache levels
+                Sse.Prefetch0(ptr);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Prefetches memory for non-temporal locality (data accessed once, streaming).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static unsafe void PrefetchNonTemporal<T>(T[] array, int index) where T : unmanaged
+    {
+        if (Sse.IsSupported && index < array.Length)
+        {
+            fixed (T* ptr = &array[index])
+            {
+                // PREFETCHNTA - prefetch to non-temporal cache structure
+                Sse.PrefetchNonTemporal(ptr);
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Prefetches sequential data starting from the given index.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static unsafe void PrefetchSequential<T>(T[] array, int startIndex, int prefetchDistance = 2) where T : unmanaged
+    {
+        if (!Sse.IsSupported || startIndex >= array.Length) return;
+        
+        var elementSize = Unsafe.SizeOf<T>();
+        var elementsPerCacheLine = Math.Max(1, CacheLineSize / elementSize);
+        
+        // Prefetch multiple cache lines ahead
+        for (int i = 0; i < prefetchDistance; i++)
+        {
+            int prefetchIndex = startIndex + (i * elementsPerCacheLine);
+            if (prefetchIndex < array.Length)
+            {
+                fixed (T* ptr = &array[prefetchIndex])
+                {
+                    Sse.Prefetch0(ptr);
+                }
+            }
+        }
+    }
+    
+    /// <summary>
+    /// Gets the optimal prefetch distance based on element size and access pattern.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static int GetOptimalPrefetchDistance<T>() where T : unmanaged
+    {
+        var elementSize = Unsafe.SizeOf<T>();
+        
+        // Larger elements need less prefetch distance
+        // Smaller elements benefit from more prefetching
+        return elementSize switch
+        {
+            <= 4 => 4,   // int, float
+            <= 8 => 3,   // long, double, Entity
+            <= 16 => 2,  // Position, Velocity (12 bytes)
+            _ => 1       // Larger components
+        };
+    }
+}
 
 /// <summary>
 /// Interface for component storage in chunks.
@@ -16,7 +155,7 @@ internal interface IComponentStorage
 /// <summary>
 /// Typed component storage for zero-boxing access with SIMD optimization.
 /// </summary>
-internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
+internal sealed class ComponentStorage<T> : IComponentStorage where T : unmanaged
 {
     private readonly T[] _components;
     private readonly bool _isSimdSupported;
@@ -33,29 +172,32 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
             ValidateSimdSupport();
         }
         
-        if (_isSimdSupported)
+        // Always try cache-line alignment for better memory performance
+        _components = CacheLineAlignedAllocator.AllocateAligned<T>(capacity);
+        
+        // If we have cache-line aligned memory and SIMD support, ensure SIMD alignment too
+        if (_isSimdSupported && _components.Length >= capacity)
         {
-            // Only align memory for types that benefit from SIMD operations
             int vectorSize = GetEffectiveVectorSize();
             
-            // Calculate memory overhead: only align if overhead is reasonable (< 25%)
-            var alignedCapacity = (capacity + vectorSize - 1) / vectorSize * vectorSize;
-            var overhead = (alignedCapacity - capacity) / (float)capacity;
-            
-            if (overhead <= 0.25f || capacity >= 64) // Always align for larger chunks
+            // Check if we need additional SIMD alignment beyond cache-line alignment
+            if (_components.Length % vectorSize != 0)
             {
-                _components = new T[alignedCapacity];
+                // Calculate combined alignment (cache-line + SIMD)
+                var cacheLineAligned = CacheLineAlignedAllocator.GetAlignedCapacity<T>(capacity);
+                var simdAlignedCapacity = ((cacheLineAligned + vectorSize - 1) / vectorSize) * vectorSize;
+                var overhead = (simdAlignedCapacity - capacity) / (float)capacity;
+                
+                if (overhead <= 0.3f || capacity >= 64) // Allow slightly more overhead for combined alignment
+                {
+                    _components = new T[simdAlignedCapacity];
+                }
+                else
+                {
+                    // Use just cache-line alignment if combined overhead is too high
+                    _isSimdSupported = false;
+                }
             }
-            else
-            {
-                // Memory overhead too high for small chunks, fall back to exact size
-                _components = new T[capacity];
-                _isSimdSupported = false; // Disable SIMD for this storage
-            }
-        }
-        else
-        {
-            _components = new T[capacity];
         }
     }
     
@@ -144,6 +286,12 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Span<T> GetSpan(int count)
     {
+        // Prefetch data for better cache performance during sequential access
+        if (count > 0)
+        {
+            MemoryPrefetcher.PrefetchSequential(_components, 0, MemoryPrefetcher.GetOptimalPrefetchDistance<T>());
+        }
+        
         return new Span<T>(_components, 0, count);
     }
     
@@ -162,9 +310,22 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
     public bool IsSimdSupported => _isSimdSupported;
     
     /// <summary>
-    /// Gets the actual capacity (may be larger due to SIMD alignment).
+    /// Gets the actual capacity (may be larger due to cache-line and SIMD alignment).
     /// </summary>
     public int ActualCapacity => _components.Length;
+    
+    /// <summary>
+    /// Gets cache alignment information for debugging and profiling.
+    /// </summary>
+    public (int ElementSize, int ElementsPerCacheLine, int AlignedCapacity, float Overhead) GetAlignmentInfo(int requestedCapacity)
+    {
+        return CacheLineAlignedAllocator.GetAlignmentInfo<T>(requestedCapacity);
+    }
+    
+    /// <summary>
+    /// Gets the internal components array for prefetching operations.
+    /// </summary>
+    internal T[] ComponentsArray => _components;
     
     /// <summary>
     /// Gets span suitable for SIMD operations with proper alignment.
@@ -178,6 +339,13 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
         // Return span that's safe for SIMD operations
         var vectorSize = GetEffectiveVectorSize();
         var alignedCount = (count / vectorSize) * vectorSize;
+        
+        // Prefetch for SIMD operations (streaming access pattern)
+        if (alignedCount > 0)
+        {
+            MemoryPrefetcher.PrefetchSequential(_components, 0, MemoryPrefetcher.GetOptimalPrefetchDistance<T>());
+        }
+        
         return new Span<T>(_components, 0, alignedCount);
     }
     
@@ -227,7 +395,8 @@ public sealed class Chunk
         _capacity = capacity;
         _count = 0;
         
-        _entities = new Entity[capacity];
+        // Use cache-line aligned allocation for entities array
+        _entities = CacheLineAlignedAllocator.AllocateAligned<Entity>(capacity);
         _componentStorages = new IComponentStorage[componentTypes.Length];
         _typeToIndex = new Dictionary<Type, int>();
         
@@ -297,7 +466,7 @@ public sealed class Chunk
     /// Gets a typed span for component access.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Span<T> GetSpan<T>() where T : struct
+    public Span<T> GetSpan<T>() where T : unmanaged
     {
         var type = typeof(T);
         if (_typeToIndex.TryGetValue(type, out var index))
@@ -313,7 +482,7 @@ public sealed class Chunk
     /// Gets a typed memory for component access to avoid allocations in enumerators.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ReadOnlyMemory<T> GetMemory<T>() where T : struct
+    public ReadOnlyMemory<T> GetMemory<T>() where T : unmanaged
     {
         var type = typeof(T);
         if (_typeToIndex.TryGetValue(type, out var index))
@@ -329,7 +498,7 @@ public sealed class Chunk
     /// Gets SIMD-aligned span for vectorized operations.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Span<T> GetSimdSpan<T>() where T : struct
+    public Span<T> GetSimdSpan<T>() where T : unmanaged
     {
         var type = typeof(T);
         if (_typeToIndex.TryGetValue(type, out var index))
@@ -345,7 +514,7 @@ public sealed class Chunk
     /// Gets remainder span for scalar processing after SIMD operations.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public Span<T> GetRemainderSpan<T>() where T : struct
+    public Span<T> GetRemainderSpan<T>() where T : unmanaged
     {
         var type = typeof(T);
         if (_typeToIndex.TryGetValue(type, out var index))
@@ -361,7 +530,7 @@ public sealed class Chunk
     /// Checks if SIMD operations are supported for the given component type.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool IsSimdSupported<T>() where T : struct
+    public bool IsSimdSupported<T>() where T : unmanaged
     {
         var type = typeof(T);
         if (_typeToIndex.TryGetValue(type, out var index))
@@ -377,7 +546,7 @@ public sealed class Chunk
     /// Checks if this chunk has a component type.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool HasComponent<T>() where T : struct
+    public bool HasComponent<T>() where T : unmanaged
     {
         return _typeToIndex.ContainsKey(typeof(T));
     }
@@ -386,7 +555,7 @@ public sealed class Chunk
     /// Gets a component reference for direct access.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public ref T GetComponent<T>(int row) where T : struct
+    public ref T GetComponent<T>(int row) where T : unmanaged
     {
         var span = GetSpan<T>();
         return ref span[row];
@@ -397,17 +566,26 @@ public sealed class Chunk
     /// Automatically handles both vectorized and remainder elements.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void ProcessVectorized<T>(VectorProcessor<T> processor) where T : struct
+    public void ProcessVectorized<T>(VectorProcessor<T> processor) where T : unmanaged
     {
         if (!IsSimdSupported<T>() || !Vector.IsHardwareAccelerated)
         {
-            // Fallback to scalar processing
+            // Fallback to scalar processing with prefetching
             var span = GetSpan<T>();
+            if (span.Length > 0)
+            {
+                // Prefetch for scalar processing
+                var storage = GetComponentStorage<T>();
+                if (storage != null)
+                {
+                    MemoryPrefetcher.PrefetchSequential(storage.ComponentsArray, 0, MemoryPrefetcher.GetOptimalPrefetchDistance<T>());
+                }
+            }
             processor.ProcessScalar(span);
             return;
         }
         
-        // Process SIMD-aligned elements
+        // Process SIMD-aligned elements (prefetching already done in GetSimdSpan)
         var simdSpan = GetSimdSpan<T>();
         if (simdSpan.Length > 0)
         {
@@ -423,10 +601,24 @@ public sealed class Chunk
     }
     
     /// <summary>
+    /// Gets the component storage for internal prefetching operations.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private ComponentStorage<T>? GetComponentStorage<T>() where T : unmanaged
+    {
+        var type = typeof(T);
+        if (_typeToIndex.TryGetValue(type, out var index))
+        {
+            return _componentStorages[index] as ComponentStorage<T>;
+        }
+        return null;
+    }
+    
+    /// <summary>
     /// Applies a vectorized transform to all components of type T in this chunk.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public void TransformVectorized<T>(Func<Vector<T>, Vector<T>> transform) where T : struct
+    public void TransformVectorized<T>(Func<Vector<T>, Vector<T>> transform) where T : unmanaged
     {
         if (!IsSimdSupported<T>() || !Vector.IsHardwareAccelerated)
             return;
@@ -446,7 +638,7 @@ public sealed class Chunk
 /// <summary>
 /// Interface for processing components with both SIMD and scalar paths.
 /// </summary>
-public interface VectorProcessor<T> where T : struct
+public interface VectorProcessor<T> where T : unmanaged
 {
     void ProcessSimd(Span<T> simdSpan);
     void ProcessScalar(Span<T> scalarSpan);

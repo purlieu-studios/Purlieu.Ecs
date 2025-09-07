@@ -15,7 +15,7 @@ internal interface IComponentOperations
 /// <summary>
 /// Typed implementation of component operations for zero-boxing access.
 /// </summary>
-internal sealed class ComponentOperations<T> : IComponentOperations where T : struct
+internal sealed class ComponentOperations<T> : IComponentOperations where T : unmanaged
 {
     private readonly bool _hasOneFrameAttribute;
     
@@ -52,7 +52,7 @@ internal static class ComponentRegistry
     /// <summary>
     /// Registers a component type with its operations.
     /// </summary>
-    public static void Register<T>() where T : struct
+    public static void Register<T>() where T : unmanaged
     {
         var type = typeof(T);
         if (!_operations.ContainsKey(type))

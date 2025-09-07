@@ -14,7 +14,7 @@ internal static class ComponentStorageFactory
     /// <summary>
     /// Registers a component storage factory for the specified type.
     /// </summary>
-    public static void Register<T>() where T : struct
+    public static void Register<T>() where T : unmanaged
     {
         var componentType = typeof(T);
         

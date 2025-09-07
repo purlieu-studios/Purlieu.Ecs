@@ -198,7 +198,7 @@ internal static class QueryStrategies
     /// Executes a simple component access pattern with SIMD optimization using direct chunk memory.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static IEnumerable<T> FastComponentAccess<T>(Chunk chunk) where T : struct
+    public static IEnumerable<T> FastComponentAccess<T>(Chunk chunk) where T : unmanaged
     {
         // Get memory directly from chunk storage to avoid allocations
         var memory = chunk.GetMemory<T>();
@@ -212,8 +212,8 @@ internal static class QueryStrategies
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static IEnumerable<(T1, T2)> FastDualComponentAccess<T1, T2>(Chunk chunk) 
-        where T1 : struct 
-        where T2 : struct
+        where T1 : unmanaged 
+        where T2 : unmanaged
     {
         var memory1 = chunk.GetMemory<T1>();
         var memory2 = chunk.GetMemory<T2>();
@@ -225,7 +225,7 @@ internal static class QueryStrategies
     /// Executes a filtered component access with early termination.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static IEnumerable<T> FastFilteredAccess<T>(Chunk chunk, Func<T, bool> predicate) where T : struct
+    public static IEnumerable<T> FastFilteredAccess<T>(Chunk chunk, Func<T, bool> predicate) where T : unmanaged
     {
         var memory = chunk.GetMemory<T>();
         
@@ -236,7 +236,7 @@ internal static class QueryStrategies
 /// <summary>
 /// Zero-allocation enumerator for span-based iteration using direct memory access.
 /// </summary>
-internal readonly struct SpanEnumerable<T> : IEnumerable<T> where T : struct
+internal readonly struct SpanEnumerable<T> : IEnumerable<T> where T : unmanaged
 {
     private readonly ReadOnlyMemory<T> _memory;
     
@@ -273,7 +273,7 @@ internal ref struct SpanEnumerator<T>
 /// <summary>
 /// Boxed version for interface compatibility using Memory<T> to avoid allocations.
 /// </summary>
-internal sealed class SpanEnumeratorBoxed<T> : IEnumerator<T> where T : struct
+internal sealed class SpanEnumeratorBoxed<T> : IEnumerator<T> where T : unmanaged
 {
     private readonly ReadOnlyMemory<T> _memory;
     private int _index;
@@ -296,8 +296,8 @@ internal sealed class SpanEnumeratorBoxed<T> : IEnumerator<T> where T : struct
 /// Zero-allocation enumerator for dual-component iteration using direct memory access.
 /// </summary>
 internal readonly struct DualSpanEnumerable<T1, T2> : IEnumerable<(T1, T2)> 
-    where T1 : struct 
-    where T2 : struct
+    where T1 : unmanaged 
+    where T2 : unmanaged
 {
     private readonly ReadOnlyMemory<T1> _memory1;
     private readonly ReadOnlyMemory<T2> _memory2;
@@ -339,8 +339,8 @@ internal ref struct DualSpanEnumerator<T1, T2>
 /// Boxed version for dual span enumeration using Memory<T> to avoid allocations.
 /// </summary>
 internal sealed class DualSpanEnumeratorBoxed<T1, T2> : IEnumerator<(T1, T2)>
-    where T1 : struct
-    where T2 : struct
+    where T1 : unmanaged
+    where T2 : unmanaged
 {
     private readonly ReadOnlyMemory<T1> _memory1;
     private readonly ReadOnlyMemory<T2> _memory2;
@@ -364,7 +364,7 @@ internal sealed class DualSpanEnumeratorBoxed<T1, T2> : IEnumerator<(T1, T2)>
 /// <summary>
 /// Zero-allocation enumerator for filtered span iteration using direct memory access.
 /// </summary>
-internal readonly struct FilteredSpanEnumerable<T> : IEnumerable<T> where T : struct
+internal readonly struct FilteredSpanEnumerable<T> : IEnumerable<T> where T : unmanaged
 {
     private readonly ReadOnlyMemory<T> _memory;
     private readonly Func<T, bool> _predicate;
@@ -422,7 +422,7 @@ internal ref struct FilteredSpanEnumerator<T>
 /// <summary>
 /// Boxed version for filtered span enumeration using Memory<T> to avoid allocations.
 /// </summary>
-internal sealed class FilteredSpanEnumeratorBoxed<T> : IEnumerator<T> where T : struct
+internal sealed class FilteredSpanEnumeratorBoxed<T> : IEnumerator<T> where T : unmanaged
 {
     private readonly ReadOnlyMemory<T> _memory;
     private readonly Func<T, bool> _predicate;
