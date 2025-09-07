@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.Reflection;
+using System.Collections.Concurrent;
 using PurlieuEcs.Core;
 
 namespace PurlieuEcs.Systems;
@@ -12,6 +13,9 @@ public sealed class SystemScheduler
     private readonly List<SystemEntry> _systems;
     private readonly Dictionary<string, List<SystemEntry>> _phaseToSystems;
     private readonly SystemProfiler _profiler;
+    
+    // Cache for system metadata to avoid repeated reflection
+    private static readonly ConcurrentDictionary<Type, SystemMetadata> _metadataCache = new();
     
     public SystemScheduler()
     {
@@ -26,18 +30,26 @@ public sealed class SystemScheduler
     public void RegisterSystem(ISystem system)
     {
         var systemType = system.GetType();
-        var phaseAttr = systemType.GetCustomAttribute<GamePhaseAttribute>();
         
-        var phase = phaseAttr?.Phase ?? GamePhases.Update;
-        var order = phaseAttr?.Order ?? 0;
+        // Get cached metadata to avoid reflection on every registration
+        var metadata = _metadataCache.GetOrAdd(systemType, type =>
+        {
+            var phaseAttr = type.GetCustomAttribute<GamePhaseAttribute>();
+            return new SystemMetadata
+            {
+                Phase = phaseAttr?.Phase ?? GamePhases.Update,
+                Order = phaseAttr?.Order ?? 0,
+                Name = type.Name
+            };
+        });
         
-        var entry = new SystemEntry(system, phase, order, systemType.Name);
+        var entry = new SystemEntry(system, metadata.Phase, metadata.Order, metadata.Name);
         _systems.Add(entry);
         
-        if (!_phaseToSystems.TryGetValue(phase, out var phaseList))
+        if (!_phaseToSystems.TryGetValue(metadata.Phase, out var phaseList))
         {
             phaseList = new List<SystemEntry>();
-            _phaseToSystems[phase] = phaseList;
+            _phaseToSystems[metadata.Phase] = phaseList;
         }
         
         phaseList.Add(entry);
@@ -92,6 +104,16 @@ public sealed class SystemScheduler
             Order = order;
             Name = name;
         }
+    }
+    
+    /// <summary>
+    /// Cached system metadata to avoid repeated reflection.
+    /// </summary>
+    private sealed class SystemMetadata
+    {
+        public required string Phase { get; init; }
+        public int Order { get; init; }
+        public required string Name { get; init; }
     }
 }
 

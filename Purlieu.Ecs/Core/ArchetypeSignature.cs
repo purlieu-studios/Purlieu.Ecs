@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Concurrent;
 using System.Runtime.CompilerServices;
 
 namespace PurlieuEcs.Core;
@@ -333,13 +334,14 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
 }
 
 /// <summary>
-/// Manages component type IDs for the ECS.
+/// Manages component type IDs for the ECS with thread-safe initialization.
 /// </summary>
 public static class ComponentTypeId
 {
     private static int _nextId;
-    private static readonly Dictionary<Type, int> _typeToId = new();
-    private static readonly Dictionary<int, Type> _idToType = new();
+    private static readonly ConcurrentDictionary<Type, int> _typeToId = new();
+    private static readonly ConcurrentDictionary<int, Type> _idToType = new();
+    private static readonly object _idLock = new();
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static int Get<T>() where T : struct
@@ -349,13 +351,21 @@ public static class ComponentTypeId
     
     public static int GetOrCreate(Type type)
     {
+        // Fast path: try to get existing ID without locking
         if (_typeToId.TryGetValue(type, out var id))
             return id;
         
-        id = _nextId++;
-        _typeToId[type] = id;
-        _idToType[id] = type;
-        return id;
+        // Slow path: need to create new ID with proper synchronization
+        return _typeToId.GetOrAdd(type, t =>
+        {
+            int newId;
+            lock (_idLock)
+            {
+                newId = _nextId++;
+            }
+            _idToType.TryAdd(newId, t);
+            return newId;
+        });
     }
     
     public static Type? GetType(int id)
@@ -365,6 +375,7 @@ public static class ComponentTypeId
     
     private static class Cache<T> where T : struct
     {
+        // Thread-safe lazy initialization using static constructor guarantees
         public static readonly int Id = GetOrCreate(typeof(T));
     }
 }

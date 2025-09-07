@@ -1,6 +1,8 @@
 using System.Buffers;
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
+using System.Linq.Expressions;
 using PurlieuEcs.Core;
 
 namespace PurlieuEcs.Snapshot;
@@ -15,6 +17,9 @@ public static class WorldSnapshot
     private const uint MagicNumber = 0x45535345;
     private const uint Version = 1;
     private const int CacheLineSize = 64;
+    
+    // Cache for component getter delegates to avoid reflection boxing
+    private static readonly ConcurrentDictionary<Type, Func<Chunk, int, byte[]>> _componentGetterCache = new();
     
     /// <summary>
     /// Header structure for deterministic binary format.
@@ -412,29 +417,65 @@ public static class WorldSnapshot
     }
     
     /// <summary>
-    /// Gets component data as raw bytes for serialization.
+    /// Gets component data as raw bytes for serialization using cached delegates to avoid boxing.
     /// </summary>
     private static unsafe byte[] GetComponentDataAsBytes(Chunk chunk, int row, Type componentType, int elementSize)
     {
-        var bytes = new byte[elementSize];
+        // Get or create cached delegate for this component type
+        var getter = _componentGetterCache.GetOrAdd(componentType, type => CreateComponentGetter(type, elementSize));
+        return getter(chunk, row);
+    }
+    
+    /// <summary>
+    /// Creates a compiled delegate to get component data without boxing.
+    /// </summary>
+    private static Func<Chunk, int, byte[]> CreateComponentGetter(Type componentType, int elementSize)
+    {
+        // Create parameter expressions
+        var chunkParam = Expression.Parameter(typeof(Chunk), "chunk");
+        var rowParam = Expression.Parameter(typeof(int), "row");
         
-        // Use the generic GetComponent method via reflection to get the data
-        var method = typeof(Chunk).GetMethod(nameof(Chunk.GetComponent))?.MakeGenericMethod(componentType);
-        if (method != null)
+        // Get the generic GetComponent method
+        var getComponentMethod = typeof(Chunk).GetMethod(nameof(Chunk.GetComponent))?.MakeGenericMethod(componentType);
+        if (getComponentMethod == null)
         {
-            var component = method.Invoke(chunk, new object[] { row });
-            if (component != null)
-            {
-                var handle = GCHandle.Alloc(component, GCHandleType.Pinned);
-                try
-                {
-                    Marshal.Copy(handle.AddrOfPinnedObject(), bytes, 0, elementSize);
-                }
-                finally
-                {
-                    handle.Free();
-                }
-            }
+            // Fallback to returning empty bytes if method not found
+            return (chunk, row) => new byte[elementSize];
+        }
+        
+        // Create method call expression: chunk.GetComponent<T>(row)
+        var getComponentCall = Expression.Call(chunkParam, getComponentMethod, rowParam);
+        
+        // Create a method that converts the component to bytes
+        var convertMethod = typeof(WorldSnapshot).GetMethod(nameof(ComponentToBytes), 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?
+            .MakeGenericMethod(componentType);
+        
+        if (convertMethod == null)
+        {
+            // Fallback if conversion method not found
+            return (chunk, row) => new byte[elementSize];
+        }
+        
+        // Create the conversion call: ComponentToBytes<T>(component)
+        var convertCall = Expression.Call(null, convertMethod, getComponentCall);
+        
+        // Compile the lambda expression
+        var lambda = Expression.Lambda<Func<Chunk, int, byte[]>>(convertCall, chunkParam, rowParam);
+        return lambda.Compile();
+    }
+    
+    /// <summary>
+    /// Converts a component to byte array without boxing.
+    /// </summary>
+    private static unsafe byte[] ComponentToBytes<T>(T component) where T : unmanaged
+    {
+        var size = sizeof(T);
+        var bytes = new byte[size];
+        
+        fixed (byte* bytesPtr = bytes)
+        {
+            *(T*)bytesPtr = component;
         }
         
         return bytes;
