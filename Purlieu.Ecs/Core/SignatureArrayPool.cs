@@ -18,13 +18,14 @@ internal static class SignatureArrayPool
     [ThreadStatic]
     private static List<ulong[]>? _largePool; // 17+ elements
     
-    private const int MaxPoolSize = 8; // Limit pool size to prevent unbounded growth
+    private const int MaxPoolSize = 4; // Limit pool size to prevent unbounded growth
+    private const int InitialPoolCapacity = 2; // Start with small capacity, grow as needed
     
     /// <summary>
     /// Rents a ulong array of at least the specified capacity.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong[] Rent(int minimumCapacity)
+    internal static ulong[] Rent(int minimumCapacity)
     {
         var pool = GetPoolForSize(minimumCapacity);
         
@@ -49,7 +50,7 @@ internal static class SignatureArrayPool
     /// Returns a ulong array to the pool for reuse.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static void Return(ulong[] array)
+    internal static void Return(ulong[] array)
     {
         if (array == null || array.Length == 0)
             return;
@@ -68,10 +69,28 @@ internal static class SignatureArrayPool
     {
         return size switch
         {
-            <= 4 => _smallPool ??= new List<ulong[]>(MaxPoolSize),
-            <= 16 => _mediumPool ??= new List<ulong[]>(MaxPoolSize),
-            _ => _largePool ??= new List<ulong[]>(MaxPoolSize)
+            <= 4 => GetOrCreateSmallPool(),
+            <= 16 => GetOrCreateMediumPool(),
+            _ => GetOrCreateLargePool()
         };
+    }
+    
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static List<ulong[]> GetOrCreateSmallPool()
+    {
+        return _smallPool ??= new List<ulong[]>(InitialPoolCapacity);
+    }
+    
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static List<ulong[]> GetOrCreateMediumPool()
+    {
+        return _mediumPool ??= new List<ulong[]>(InitialPoolCapacity);
+    }
+    
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private static List<ulong[]> GetOrCreateLargePool()
+    {
+        return _largePool ??= new List<ulong[]>(InitialPoolCapacity);
     }
     
     private static int GetOptimalCapacity(int minimumCapacity)
@@ -93,7 +112,7 @@ internal static class SignatureArrayPool
     /// NOTE: Does not return source array to pool since it might still be referenced.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong[] Resize(ulong[] sourceArray, int newSize, int copyLength = -1)
+    internal static ulong[] Resize(ulong[] sourceArray, int newSize, int copyLength = -1)
     {
         var newArray = Rent(newSize);
         
@@ -113,10 +132,17 @@ internal static class SignatureArrayPool
     /// Creates a copy of the source array using the pool.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public static ulong[] Clone(ulong[] sourceArray)
+    internal static ulong[] Clone(ulong[] sourceArray)
     {
         var cloneArray = Rent(sourceArray.Length);
         Array.Copy(sourceArray, cloneArray, sourceArray.Length);
         return cloneArray;
     }
+
+#if DEBUG
+    // Test accessors for allocation debugging
+    public static ulong[] TestRent(int minimumCapacity) => Rent(minimumCapacity);
+    public static void TestReturn(ulong[] array) => Return(array);
+    public static ulong[] TestResize(ulong[] sourceArray, int newSize, int copyLength = -1) => Resize(sourceArray, newSize, copyLength);
+#endif
 }

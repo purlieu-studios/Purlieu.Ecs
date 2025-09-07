@@ -12,13 +12,20 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
     private readonly ulong[] _bits;
     private readonly int _hashCode;
     
+    // Pre-allocated arrays for common signature sizes to avoid pool allocations
+    private static readonly ulong[] _emptyArray = Array.Empty<ulong>();
+    private static readonly ulong[] _singleElementArray = new ulong[1];
+    
     public ArchetypeSignature()
     {
-        _bits = Array.Empty<ulong>();
+        _bits = _emptyArray;
         _hashCode = 0;
     }
     
-    private ArchetypeSignature(ulong[] bits)
+    /// <summary>
+    /// Internal constructor for efficient signature building.
+    /// </summary>
+    internal ArchetypeSignature(ulong[] bits)
     {
         _bits = bits;
         _hashCode = ComputeHashCode(bits);
@@ -65,7 +72,25 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
         var bitIndex = typeId % BitsPerElement;
         
         var newLength = Math.Max(_bits.Length, elementIndex + 1);
-        var newBits = SignatureArrayPool.Resize(_bits, newLength);
+        
+        // Optimization: Use static arrays for common cases to avoid pool allocations
+        ulong[] newBits;
+        if (newLength == 1 && _bits.Length == 0)
+        {
+            // First component - use pre-allocated single element array
+            newBits = new ulong[1]; // Cannot reuse static array as it would be modified
+        }
+        else if (newLength == 1 && _bits.Length == 1)
+        {
+            // Adding to existing single-element signature - clone the static array
+            newBits = new ulong[1];
+            newBits[0] = _bits[0];
+        }
+        else
+        {
+            // Use pool for multi-element arrays
+            newBits = SignatureArrayPool.Resize(_bits, newLength);
+        }
         
         newBits[elementIndex] |= 1UL << bitIndex;
         

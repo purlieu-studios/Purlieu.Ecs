@@ -70,6 +70,9 @@ public class SIMD_PlatformCompatibilityTests
             .With<Position>()
             .With<Velocity>();
 
+        // Pre-trigger signature building to exclude from allocation measurement  
+        _ = query.ChunksStack().GetEnumerator();
+
         // Force GC and wait for cleanup before measurement
         GC.Collect();
         GC.WaitForPendingFinalizers();

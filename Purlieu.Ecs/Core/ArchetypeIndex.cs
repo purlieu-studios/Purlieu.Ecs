@@ -63,7 +63,11 @@ internal sealed class ArchetypeIndex
             return cachedResult;
         }
         
-        var matchingArchetypes = new List<Archetype>(capacity: 16);
+        // Use pooled small array for common case (≤16 archetypes) to minimize allocations
+        const int SmallResultLimit = 16;
+        var smallBuffer = SmallArchetypeArrayPool.Rent();
+        var matchingCount = 0;
+        List<Archetype>? heapList = null;
         
         // Fast path: if no required components, only need to check exclusions
         if (withSignature.Equals(new ArchetypeSignature()))
@@ -72,7 +76,24 @@ internal sealed class ArchetypeIndex
             {
                 if (!archetype.Signature.HasIntersection(withoutSignature))
                 {
-                    matchingArchetypes.Add(archetype);
+                    if (matchingCount < SmallResultLimit)
+                    {
+                        smallBuffer[matchingCount] = archetype;
+                    }
+                    else
+                    {
+                        // First overflow: copy small buffer to heap list
+                        if (heapList == null)
+                        {
+                            heapList = ListPool<Archetype>.Rent();
+                            for (int i = 0; i < SmallResultLimit; i++)
+                            {
+                                heapList.Add(smallBuffer[i]);
+                            }
+                        }
+                        heapList.Add(archetype);
+                    }
+                    matchingCount++;
                 }
             }
         }
@@ -86,17 +107,59 @@ internal sealed class ArchetypeIndex
                 if (archetype.Signature.IsSupersetOf(withSignature) && 
                     !archetype.Signature.HasIntersection(withoutSignature))
                 {
-                    matchingArchetypes.Add(archetype);
+                    if (matchingCount < SmallResultLimit)
+                    {
+                        smallBuffer[matchingCount] = archetype;
+                    }
+                    else
+                    {
+                        // First overflow: copy small buffer to heap list
+                        if (heapList == null)
+                        {
+                            heapList = ListPool<Archetype>.Rent();
+                            for (int i = 0; i < SmallResultLimit; i++)
+                            {
+                                heapList.Add(smallBuffer[i]);
+                            }
+                        }
+                        heapList.Add(archetype);
+                    }
+                    matchingCount++;
                 }
             }
         }
         
-        var result = new ArchetypeSet(matchingArchetypes);
+        // Create result based on storage used
+        ArchetypeSet result;
+        if (heapList != null)
+        {
+            // Used heap storage for large result sets
+            result = new ArchetypeSet(heapList);
+        }
+        else
+        {
+            // Used small buffer - pass array directly to avoid List allocation
+            result = new ArchetypeSet(smallBuffer, matchingCount);
+        }
         
-        // Cache result for future queries (limit cache size)
+        // Cache results to improve performance on repeated queries
         if (_queryCache.Count < 100)
         {
             _queryCache[queryKey] = result;
+            // Don't return smallBuffer to pool since it's cached in the result
+        }
+        else 
+        {
+            // Not caching - return resources to pools
+            if (heapList != null)
+            {
+                ListPool<Archetype>.Return(heapList);
+            }
+            else
+            {
+                // Return small buffer to pool since result won't be cached
+                SmallArchetypeArrayPool.Return(smallBuffer);
+            }
         }
         
         return result;
@@ -122,21 +185,38 @@ internal sealed class ArchetypeIndex
 /// </summary>
 internal readonly struct ArchetypeSet
 {
-    private readonly List<Archetype> _archetypes;
+    private readonly List<Archetype>? _archetypes;
+    private readonly Archetype[]? _archetypeArray;
+    private readonly int _count;
+    private readonly bool _isPooled;
     
-    public ArchetypeSet(List<Archetype> archetypes)
+    public ArchetypeSet(List<Archetype> archetypes, bool isPooled = false)
     {
         _archetypes = archetypes;
+        _archetypeArray = null;
+        _count = archetypes.Count;
+        _isPooled = isPooled;
     }
     
-    public int Count => _archetypes?.Count ?? 0;
+    public ArchetypeSet(Archetype[] archetypes, int count)
+    {
+        _archetypes = null;
+        _archetypeArray = archetypes;
+        _count = count;
+        _isPooled = false;
+    }
+    
+    public int Count => _count;
     
     /// <summary>
     /// Enumerates all chunks from matching archetypes with zero allocations.
     /// </summary>
     public ChunkEnumerator GetChunks()
     {
-        return new ChunkEnumerator(_archetypes ?? new List<Archetype>());
+        if (_archetypes != null)
+            return new ChunkEnumerator(_archetypes);
+        else
+            return new ChunkEnumerator(_archetypeArray!, _count);
     }
     
     /// <summary>
@@ -145,7 +225,9 @@ internal readonly struct ArchetypeSet
     /// </summary>
     public struct ChunkEnumerator
     {
-        private readonly List<Archetype> _archetypes;
+        private readonly List<Archetype>? _archetypes;
+        private readonly Archetype[]? _archetypeArray;
+        private readonly int _archetypeCount;
         private int _archetypeIndex;
         private List<Chunk>? _currentChunks;
         private int _chunkIndex;
@@ -153,6 +235,18 @@ internal readonly struct ArchetypeSet
         internal ChunkEnumerator(List<Archetype> archetypes)
         {
             _archetypes = archetypes;
+            _archetypeArray = null;
+            _archetypeCount = archetypes.Count;
+            _archetypeIndex = 0;
+            _currentChunks = null;
+            _chunkIndex = 0;
+        }
+        
+        internal ChunkEnumerator(Archetype[] archetypes, int count)
+        {
+            _archetypes = null;
+            _archetypeArray = archetypes;
+            _archetypeCount = count;
             _archetypeIndex = 0;
             _currentChunks = null;
             _chunkIndex = 0;
@@ -178,10 +272,10 @@ internal readonly struct ArchetypeSet
                 }
                 
                 // Move to next archetype
-                if (_archetypeIndex >= _archetypes.Count)
+                if (_archetypeIndex >= _archetypeCount)
                     return false;
                 
-                var archetype = _archetypes[_archetypeIndex++];
+                var archetype = _archetypes?[_archetypeIndex++] ?? _archetypeArray![_archetypeIndex++];
                 _currentChunks = archetype.GetChunks();
                 _chunkIndex = 0;
             }

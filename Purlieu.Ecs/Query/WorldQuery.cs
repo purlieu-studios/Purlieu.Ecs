@@ -9,14 +9,18 @@ namespace PurlieuEcs.Query;
 public sealed class WorldQuery
 {
     private readonly World _world;
-    private ArchetypeSignature _withSignature;
-    private ArchetypeSignature _withoutSignature;
+    private readonly List<int> _withTypeIds;
+    private readonly List<int> _withoutTypeIds;
+    
+    // Cached signatures built on first access
+    private ArchetypeSignature? _cachedWithSignature;
+    private ArchetypeSignature? _cachedWithoutSignature;
     
     internal WorldQuery(World world)
     {
         _world = world;
-        _withSignature = new ArchetypeSignature();
-        _withoutSignature = new ArchetypeSignature();
+        _withTypeIds = new List<int>(4); // Common case: 1-4 components
+        _withoutTypeIds = new List<int>(2); // Less common
     }
     
     /// <summary>
@@ -25,7 +29,8 @@ public sealed class WorldQuery
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public WorldQuery With<T>() where T : struct
     {
-        _withSignature = _withSignature.Add<T>();
+        _withTypeIds.Add(ComponentTypeId.Get<T>());
+        _cachedWithSignature = null; // Invalidate cache
         return this;
     }
     
@@ -35,8 +40,62 @@ public sealed class WorldQuery
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public WorldQuery Without<T>() where T : struct
     {
-        _withoutSignature = _withoutSignature.Add<T>();
+        _withoutTypeIds.Add(ComponentTypeId.Get<T>());
+        _cachedWithoutSignature = null; // Invalidate cache
         return this;
+    }
+    
+    /// <summary>
+    /// Gets the "with" signature, building it on-demand.
+    /// </summary>
+    private ArchetypeSignature GetWithSignature()
+    {
+        if (_cachedWithSignature == null)
+        {
+            _cachedWithSignature = BuildSignature(_withTypeIds);
+        }
+        return _cachedWithSignature.Value;
+    }
+    
+    /// <summary>
+    /// Gets the "without" signature, building it on-demand.
+    /// </summary>
+    private ArchetypeSignature GetWithoutSignature()
+    {
+        if (_cachedWithoutSignature == null)
+        {
+            _cachedWithoutSignature = BuildSignature(_withoutTypeIds);
+        }
+        return _cachedWithoutSignature.Value;
+    }
+    
+    /// <summary>
+    /// Builds a signature from a list of type IDs efficiently.
+    /// </summary>
+    private static ArchetypeSignature BuildSignature(List<int> typeIds)
+    {
+        if (typeIds.Count == 0)
+            return new ArchetypeSignature();
+        
+        // Find the maximum element index needed
+        int maxElementIndex = 0;
+        foreach (var typeId in typeIds)
+        {
+            maxElementIndex = Math.Max(maxElementIndex, typeId / 64);
+        }
+        
+        // Create array of optimal size
+        var bits = new ulong[maxElementIndex + 1];
+        
+        // Set all required bits
+        foreach (var typeId in typeIds)
+        {
+            var elementIndex = typeId / 64;
+            var bitIndex = typeId % 64;
+            bits[elementIndex] |= 1UL << bitIndex;
+        }
+        
+        return new ArchetypeSignature(bits);
     }
     
     /// <summary>
@@ -45,7 +104,7 @@ public sealed class WorldQuery
     public PooledChunkCollection Chunks()
     {
         var chunks = ChunkPool.RentList();
-        _world.GetMatchingChunks(_withSignature, _withoutSignature, chunks);
+        _world.GetMatchingChunks(GetWithSignature(), GetWithoutSignature(), chunks);
         return new PooledChunkCollection(chunks);
     }
     
@@ -54,7 +113,7 @@ public sealed class WorldQuery
     /// </summary>
     public DirectChunkEnumerable ChunksStack()
     {
-        return new DirectChunkEnumerable(_world, _withSignature, _withoutSignature);
+        return new DirectChunkEnumerable(_world, GetWithSignature(), GetWithoutSignature());
     }
     
     /// <summary>
