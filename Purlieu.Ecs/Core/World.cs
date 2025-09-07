@@ -6,7 +6,7 @@ namespace PurlieuEcs.Core;
 /// <summary>
 /// Central ECS world managing entities, archetypes, and systems.
 /// </summary>
-public sealed class World
+public sealed class World : IDisposable
 {
     // Optimized constants for chunk calculations (512 = 2^9)
     private const int ChunkCapacity = 512;
@@ -24,6 +24,7 @@ public sealed class World
     private ulong _nextArchetypeId;
     
     private readonly Dictionary<Type, object> _eventChannels;
+    private readonly MemoryManager _memoryManager;
     
     public World(int initialCapacity = 1024)
     {
@@ -40,6 +41,9 @@ public sealed class World
         _nextArchetypeId = 1; // 0 is reserved for empty archetype
         
         _eventChannels = new Dictionary<Type, object>(capacity: 32);
+        
+        // Initialize memory manager for automatic cleanup
+        _memoryManager = new MemoryManager(this);
         
         // Register common component types to avoid reflection later
         RegisterComponentTypes();
@@ -684,6 +688,41 @@ public sealed class World
                 }
             }
         }
+    }
+    
+    /// <summary>
+    /// Forces immediate memory cleanup and optimization.
+    /// </summary>
+    public void ForceMemoryCleanup(CleanupLevel level = CleanupLevel.Normal)
+    {
+        _memoryManager.ForceCleanup(level);
+    }
+    
+    /// <summary>
+    /// Gets current memory management statistics.
+    /// </summary>
+    public MemoryStatistics GetMemoryStatistics()
+    {
+        return _memoryManager.GetStatistics();
+    }
+    
+    /// <summary>
+    /// Disposes the world and cleans up all resources.
+    /// </summary>
+    public void Dispose()
+    {
+        _memoryManager?.Dispose();
+        
+        // Clear all event channels
+        foreach (var channel in _eventChannels.Values)
+        {
+            if (channel is IEventChannel eventChannel)
+            {
+                eventChannel.Clear();
+            }
+        }
+        
+        _eventChannels.Clear();
     }
     
     /// <summary>

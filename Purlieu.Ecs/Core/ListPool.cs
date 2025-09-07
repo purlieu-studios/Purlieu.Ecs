@@ -9,6 +9,7 @@ internal static class ListPool<T>
 {
     private static readonly ConcurrentQueue<List<T>> _pool = new();
     private static int _poolCount = 0;
+    private static long _lastAccessTicks = Environment.TickCount64;
     private const int MaxPoolSize = 32;
     
     /// <summary>
@@ -16,6 +17,8 @@ internal static class ListPool<T>
     /// </summary>
     public static List<T> Rent()
     {
+        _lastAccessTicks = Environment.TickCount64;
+        
         if (_pool.TryDequeue(out var list))
         {
             Interlocked.Decrement(ref _poolCount);
@@ -33,6 +36,7 @@ internal static class ListPool<T>
         if (list == null)
             return;
             
+        _lastAccessTicks = Environment.TickCount64;
         list.Clear();
         
         // Only keep a limited number in the pool to prevent unbounded growth
@@ -40,6 +44,24 @@ internal static class ListPool<T>
         {
             _pool.Enqueue(list);
             Interlocked.Increment(ref _poolCount);
+        }
+    }
+    
+    /// <summary>
+    /// Clears unused pools that haven't been accessed recently.
+    /// </summary>
+    public static void ClearIfUnused(TimeSpan threshold)
+    {
+        var thresholdMs = (long)threshold.TotalMilliseconds;
+        var elapsedMs = Environment.TickCount64 - _lastAccessTicks;
+        
+        if (elapsedMs > thresholdMs)
+        {
+            // Clear all pooled lists
+            while (_pool.TryDequeue(out _))
+            {
+                Interlocked.Decrement(ref _poolCount);
+            }
         }
     }
 }

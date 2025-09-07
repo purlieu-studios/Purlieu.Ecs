@@ -11,12 +11,17 @@ internal static class ChunkPool
     [ThreadStatic]
     private static List<Chunk>? _threadLocalList;
     
+    [ThreadStatic]
+    private static long _lastAccessTicks;
+    
     /// <summary>
     /// Rents a list from the thread-local pool.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static List<Chunk> RentList()
     {
+        _lastAccessTicks = Environment.TickCount64;
+        
         var list = _threadLocalList;
         if (list != null)
         {
@@ -38,6 +43,25 @@ internal static class ChunkPool
         {
             list.Clear();
             _threadLocalList = list;
+            _lastAccessTicks = Environment.TickCount64;
+        }
+    }
+    
+    /// <summary>
+    /// Clears unused pools that haven't been accessed recently.
+    /// </summary>
+    public static void ClearUnusedPools()
+    {
+        // Clear if not accessed in last 5 minutes
+        const long UnusedThresholdMs = 5 * 60 * 1000;
+        
+        if (_threadLocalList != null)
+        {
+            var elapsedMs = Environment.TickCount64 - _lastAccessTicks;
+            if (elapsedMs > UnusedThresholdMs)
+            {
+                _threadLocalList = null;
+            }
         }
     }
 }
