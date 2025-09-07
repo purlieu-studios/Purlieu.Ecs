@@ -1,6 +1,7 @@
 using System.Reflection;
 using PurlieuEcs.Events;
 using PurlieuEcs.Logging;
+using PurlieuEcs.Validation;
 
 namespace PurlieuEcs.Core;
 
@@ -27,13 +28,19 @@ public sealed class World : IDisposable
     private readonly Dictionary<Type, object> _eventChannels;
     private readonly MemoryManager _memoryManager;
     private readonly IEcsLogger _logger;
+    private readonly IEcsValidator _validator;
     
     /// <summary>
     /// Gets the logger instance for this world
     /// </summary>
     public IEcsLogger Logger => _logger;
     
-    public World(int initialCapacity = 1024, IEcsLogger? logger = null)
+    /// <summary>
+    /// Gets the validator instance for this world
+    /// </summary>
+    public IEcsValidator Validator => _validator;
+    
+    public World(int initialCapacity = 1024, IEcsLogger? logger = null, IEcsValidator? validator = null)
     {
         _entityCapacity = initialCapacity;
         _entities = new EntityRecord[_entityCapacity];
@@ -51,6 +58,14 @@ public sealed class World : IDisposable
         
         // Initialize logger (use null logger if none provided)
         _logger = logger ?? NullEcsLogger.Instance;
+        
+        // Initialize validator (use null validator in release, debug validator in debug)
+        _validator = validator ?? 
+#if DEBUG
+            new EcsValidator();
+#else
+            NullEcsValidator.Instance;
+#endif
         
         // Initialize memory manager for automatic cleanup
         _memoryManager = new MemoryManager(this);
@@ -84,46 +99,60 @@ public sealed class World : IDisposable
     /// </summary>
     public Entity CreateEntity()
     {
-        uint id;
-        uint version = 1;
-        
-        if (_freeIds.Count > 0)
+        try
         {
-            id = _freeIds.Dequeue();
-            var oldRecord = _entities[(int)id - 1];
-            version = oldRecord.Version + 1;
+            uint id;
+            uint version = 1;
             
-            // Add reused entity to empty archetype
-            var emptyArchetype = _idToArchetype[0];
-            var row = emptyArchetype.AddEntity(new Entity(id, version));
-            _entities[(int)id - 1] = new EntityRecord(version, 0, row);
-        }
-        else
-        {
-            id = _nextEntityId++;
-            
-            // Grow array if needed
-            if (id > _entityCapacity)
+            if (_freeIds.Count > 0)
             {
-                _entityCapacity *= 2;
-                Array.Resize(ref _entities, _entityCapacity);
+                id = _freeIds.Dequeue();
+                var oldRecord = _entities[(int)id - 1];
+                version = oldRecord.Version + 1;
+                
+                // Add reused entity to empty archetype
+                var emptyArchetype = _idToArchetype[0];
+                var row = emptyArchetype.AddEntity(new Entity(id, version));
+                _entities[(int)id - 1] = new EntityRecord(version, 0, row);
+            }
+            else
+            {
+                id = _nextEntityId++;
+                
+                // Validate we haven't exceeded maximum entity limit
+                if (id == uint.MaxValue)
+                {
+                    throw new InvalidOperationException("Maximum entity limit reached (uint.MaxValue)");
+                }
+                
+                // Grow array if needed
+                if (id > _entityCapacity)
+                {
+                    _entityCapacity *= 2;
+                    Array.Resize(ref _entities, _entityCapacity);
+                }
+                
+                // Add entity to empty archetype
+                var emptyArchetype = _idToArchetype[0];
+                var row = emptyArchetype.AddEntity(new Entity(id, version));
+                _entities[(int)id - 1] = new EntityRecord(version, 0, row);
             }
             
-            // Add entity to empty archetype
-            var emptyArchetype = _idToArchetype[0];
-            var row = emptyArchetype.AddEntity(new Entity(id, version));
-            _entities[(int)id - 1] = new EntityRecord(version, 0, row);
+            var entity = new Entity(id, version);
+            
+            // Log entity creation
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityCreate, entity.Id);
+            }
+            
+            return entity;
         }
-        
-        var entity = new Entity(id, version);
-        
-        // Log entity creation
-        if (_logger.IsEnabled(LogLevel.Debug))
+        catch (Exception ex)
         {
-            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityCreate, entity.Id);
+            _logger.LogError(ex, EcsOperation.EntityCreate, 0, CorrelationContext.Current);
+            throw new EcsException("Failed to create entity", ex);
         }
-        
-        return entity;
     }
     
     /// <summary>
@@ -131,36 +160,44 @@ public sealed class World : IDisposable
     /// </summary>
     public void DestroyEntity(Entity entity)
     {
-        if (!IsAlive(entity))
-            return;
-        
-        // Log entity destruction
-        if (_logger.IsEnabled(LogLevel.Debug))
+        try
         {
-            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityDestroy, entity.Id);
-        }
-        
-        ref var record = ref GetRecord(entity);
-        
-        // Clear from archetype if it has one
-        if (record.ArchetypeId != 0 && _idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
-        {
-            var swappedEntity = archetype.RemoveEntity(entity, record.Row);
+            if (!IsAlive(entity))
+                return;
             
-            // If an entity was swapped to fill the removed entity's slot, update its record
-            if (swappedEntity != Entity.Invalid && swappedEntity != entity)
+            // Log entity destruction
+            if (_logger.IsEnabled(LogLevel.Debug))
             {
-                ref var swappedRecord = ref GetRecord(swappedEntity);
-                swappedRecord.Row = record.Row; // The swapped entity now has the destroyed entity's row index
+                _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityDestroy, entity.Id);
             }
+            
+            ref var record = ref GetRecord(entity);
+            
+            // Clear from archetype if it has one
+            if (record.ArchetypeId != 0 && _idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
+            {
+                var swappedEntity = archetype.RemoveEntity(entity, record.Row);
+                
+                // If an entity was swapped to fill the removed entity's slot, update its record
+                if (swappedEntity != Entity.Invalid && swappedEntity != entity)
+                {
+                    ref var swappedRecord = ref GetRecord(swappedEntity);
+                    swappedRecord.Row = record.Row; // The swapped entity now has the destroyed entity's row index
+                }
+            }
+            
+            // Mark as destroyed by incrementing version
+            record.Version++;
+            record.ArchetypeId = 0;
+            record.Row = -1;
+            
+            _freeIds.Enqueue(entity.Id);
         }
-        
-        // Mark as destroyed by incrementing version
-        record.Version++;
-        record.ArchetypeId = 0;
-        record.Row = -1;
-        
-        _freeIds.Enqueue(entity.Id);
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, EcsOperation.EntityDestroy, entity.Id, CorrelationContext.Current);
+            throw new EntityNotFoundException(entity.Id, "Failed to destroy entity", ex);
+        }
     }
     
     /// <summary>
@@ -257,14 +294,22 @@ public sealed class World : IDisposable
     /// </summary>
     public void RegisterComponent<T>() where T : unmanaged
     {
-        ComponentRegistry.Register<T>();
-        ComponentStorageFactory.Register<T>();
-        
-        // Use selective cache invalidation for newly registered component
-        var componentTypes = new Type[] { typeof(T) };
-        _archetypeIndex.InvalidateCacheForComponents(componentTypes);
-        ComponentDeltaCache.InvalidateCacheForComponents(componentTypes);
-        PurlieuEcs.Query.QueryCompiler.InvalidateCacheForComponents(componentTypes);
+        try
+        {
+            ComponentRegistry.Register<T>();
+            ComponentStorageFactory.Register<T>();
+            
+            // Use selective cache invalidation for newly registered component
+            var componentTypes = new Type[] { typeof(T) };
+            _archetypeIndex.InvalidateCacheForComponents(componentTypes);
+            ComponentDeltaCache.InvalidateCacheForComponents(componentTypes);
+            PurlieuEcs.Query.QueryCompiler.InvalidateCacheForComponents(componentTypes);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, EcsOperation.SystemExecute, 0, CorrelationContext.Current);
+            throw new EcsException($"Failed to register component type {typeof(T).Name}", ex);
+        }
     }
     
     /// <summary>
@@ -272,37 +317,60 @@ public sealed class World : IDisposable
     /// </summary>
     public void AddComponent<T>(Entity entity, T component) where T : unmanaged
     {
-        if (!IsAlive(entity))
-            return;
-        
-        // Log component addition
-        if (_logger.IsEnabled(LogLevel.Debug))
+        try
         {
-            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentAdd, entity.Id, typeof(T).Name);
-        }
+            if (!IsAlive(entity))
+                throw new EntityNotFoundException(entity.Id, "Cannot add component to non-existent entity");
             
-        ref var record = ref GetRecord(entity);
-        var currentArchetype = _idToArchetype[record.ArchetypeId];
-        
-        // Check if entity already has the component
-        if (currentArchetype.Signature.Has<T>())
-            return;
-        
-        var newSignature = currentArchetype.Signature.Add<T>();
-        
-        // Create new component types array without LINQ allocations
-        var oldTypes = currentArchetype.ComponentTypes;
-        var newComponentTypes = new Type[oldTypes.Count + 1];
-        for (int i = 0; i < oldTypes.Count; i++)
-        {
-            newComponentTypes[i] = oldTypes[i];
+            // Validate component type and entity operation
+            var componentValidation = _validator.ValidateComponentType<T>();
+            if (!componentValidation.IsValid && componentValidation.Severity == ValidationSeverity.Error)
+            {
+                throw new ComponentException(entity.Id, typeof(T), componentValidation.Message, 
+                    new ValidationException(componentValidation.Message));
+            }
+            
+            var operationValidation = _validator.ValidateEntityOperation(EntityOperation.AddComponent, entity.Id, typeof(T));
+            if (!operationValidation.IsValid && operationValidation.Severity == ValidationSeverity.Error)
+            {
+                throw new ComponentException(entity.Id, typeof(T), operationValidation.Message,
+                    new ValidationException(operationValidation.Message));
+            }
+            
+            // Log component addition
+            if (_logger.IsEnabled(LogLevel.Debug))
+            {
+                _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentAdd, entity.Id, typeof(T).Name);
+            }
+                
+            ref var record = ref GetRecord(entity);
+            var currentArchetype = _idToArchetype[record.ArchetypeId];
+            
+            // Check if entity already has the component
+            if (currentArchetype.Signature.Has<T>())
+                return;
+            
+            var newSignature = currentArchetype.Signature.Add<T>();
+            
+            // Create new component types array without LINQ allocations
+            var oldTypes = currentArchetype.ComponentTypes;
+            var newComponentTypes = new Type[oldTypes.Count + 1];
+            for (int i = 0; i < oldTypes.Count; i++)
+            {
+                newComponentTypes[i] = oldTypes[i];
+            }
+            newComponentTypes[oldTypes.Count] = typeof(T);
+            
+            var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
+            
+            // Move entity to new archetype
+            MoveEntityToArchetype(entity, currentArchetype, newArchetype, component);
         }
-        newComponentTypes[oldTypes.Count] = typeof(T);
-        
-        var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
-        
-        // Move entity to new archetype
-        MoveEntityToArchetype(entity, currentArchetype, newArchetype, component);
+        catch (Exception ex) when (!(ex is ComponentException || ex is EntityNotFoundException))
+        {
+            _logger.LogError(ex, EcsOperation.ComponentAdd, entity.Id, CorrelationContext.Current);
+            throw new ComponentException(entity.Id, typeof(T), "Failed to add component", ex);
+        }
     }
     
     /// <summary>
@@ -310,41 +378,49 @@ public sealed class World : IDisposable
     /// </summary>
     public void RemoveComponent<T>(Entity entity) where T : unmanaged
     {
-        if (!IsAlive(entity))
-            return;
-        
-        // Log component removal
-        if (_logger.IsEnabled(LogLevel.Debug))
+        try
         {
-            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentRemove, entity.Id, typeof(T).Name);
-        }
+            if (!IsAlive(entity))
+                throw new EntityNotFoundException(entity.Id, "Cannot remove component from non-existent entity");
             
-        ref var record = ref GetRecord(entity);
-        var currentArchetype = _idToArchetype[record.ArchetypeId];
-        
-        if (!currentArchetype.Signature.Has<T>())
-            return; // Entity doesn't have this component
-            
-        var newSignature = currentArchetype.Signature.Remove<T>();
-        
-        // Create new component types array without LINQ allocations
-        var oldTypes = currentArchetype.ComponentTypes;
-        var targetType = typeof(T);
-        var newComponentTypes = new Type[oldTypes.Count - 1];
-        int writeIndex = 0;
-        
-        for (int i = 0; i < oldTypes.Count; i++)
-        {
-            if (oldTypes[i] != targetType)
+            // Log component removal
+            if (_logger.IsEnabled(LogLevel.Debug))
             {
-                newComponentTypes[writeIndex++] = oldTypes[i];
+                _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentRemove, entity.Id, typeof(T).Name);
             }
+                
+            ref var record = ref GetRecord(entity);
+            var currentArchetype = _idToArchetype[record.ArchetypeId];
+            
+            if (!currentArchetype.Signature.Has<T>())
+                return; // Entity doesn't have this component
+                
+            var newSignature = currentArchetype.Signature.Remove<T>();
+            
+            // Create new component types array without LINQ allocations
+            var oldTypes = currentArchetype.ComponentTypes;
+            var targetType = typeof(T);
+            var newComponentTypes = new Type[oldTypes.Count - 1];
+            int writeIndex = 0;
+            
+            for (int i = 0; i < oldTypes.Count; i++)
+            {
+                if (oldTypes[i] != targetType)
+                {
+                    newComponentTypes[writeIndex++] = oldTypes[i];
+                }
+            }
+            
+            var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
+            
+            // Move entity to new archetype
+            MoveEntityToArchetype<T>(entity, currentArchetype, newArchetype);
         }
-        
-        var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
-        
-        // Move entity to new archetype
-        MoveEntityToArchetype<T>(entity, currentArchetype, newArchetype);
+        catch (Exception ex) when (!(ex is ComponentException || ex is EntityNotFoundException))
+        {
+            _logger.LogError(ex, EcsOperation.ComponentRemove, entity.Id, CorrelationContext.Current);
+            throw new ComponentException(entity.Id, typeof(T), "Failed to remove component", ex);
+        }
     }
     
     /// <summary>
@@ -352,36 +428,44 @@ public sealed class World : IDisposable
     /// </summary>
     public ref T GetComponent<T>(Entity entity) where T : unmanaged
     {
-        if (!IsAlive(entity))
-            throw new ArgumentException("Entity is not alive", nameof(entity));
-        
-        // Log component access at trace level (very frequent operation)
-        if (_logger.IsEnabled(LogLevel.Trace))
+        try
         {
-            _logger.LogEntityOperation(LogLevel.Trace, EcsOperation.ComponentGet, entity.Id, typeof(T).Name);
-        }
+            if (!IsAlive(entity))
+                throw new EntityNotFoundException(entity.Id, "Cannot get component from non-existent entity");
             
-        var record = GetRecord(entity);
-        var archetype = _idToArchetype[record.ArchetypeId];
-        
-        if (!archetype.Signature.Has<T>())
-            throw new ArgumentException($"Entity does not have component {typeof(T).Name}", nameof(entity));
-        
-        // Find the chunk containing this entity using fast bit operations
-        int chunkIndex = record.Row >> ChunkCapacityBits; // Fast division by 512
-        int localRow = record.Row & ChunkCapacityMask; // Fast modulo 512
-        
-        var chunks = archetype.GetChunks();
-        if (chunkIndex < chunks.Count)
-        {
-            var chunk = chunks[chunkIndex];
-            if (chunk.HasComponent<T>())
+            // Log component access at trace level (very frequent operation)
+            if (_logger.IsEnabled(LogLevel.Trace))
             {
-                return ref chunk.GetComponent<T>(localRow);
+                _logger.LogEntityOperation(LogLevel.Trace, EcsOperation.ComponentGet, entity.Id, typeof(T).Name);
             }
+                
+            var record = GetRecord(entity);
+            var archetype = _idToArchetype[record.ArchetypeId];
+            
+            if (!archetype.Signature.Has<T>())
+                throw new ComponentException(entity.Id, typeof(T), $"Entity does not have component {typeof(T).Name}");
+            
+            // Find the chunk containing this entity using fast bit operations
+            int chunkIndex = record.Row >> ChunkCapacityBits; // Fast division by 512
+            int localRow = record.Row & ChunkCapacityMask; // Fast modulo 512
+            
+            var chunks = archetype.GetChunks();
+            if (chunkIndex < chunks.Count)
+            {
+                var chunk = chunks[chunkIndex];
+                if (chunk.HasComponent<T>())
+                {
+                    return ref chunk.GetComponent<T>(localRow);
+                }
+            }
+            
+            throw new ComponentException(entity.Id, typeof(T), $"Entity component {typeof(T).Name} not found in chunk");
         }
-        
-        throw new ArgumentException($"Entity does not have component {typeof(T).Name}", nameof(entity));
+        catch (Exception ex) when (!(ex is ComponentException || ex is EntityNotFoundException))
+        {
+            _logger.LogError(ex, EcsOperation.ComponentGet, entity.Id, CorrelationContext.Current);
+            throw new ComponentException(entity.Id, typeof(T), "Failed to get component", ex);
+        }
     }
     
     /// <summary>
@@ -389,12 +473,20 @@ public sealed class World : IDisposable
     /// </summary>
     public bool HasComponent<T>(Entity entity) where T : unmanaged
     {
-        if (!IsAlive(entity))
-            return false;
-            
-        var record = GetRecord(entity);
-        var archetype = _idToArchetype[record.ArchetypeId];
-        return archetype.Signature.Has<T>();
+        try
+        {
+            if (!IsAlive(entity))
+                return false;
+                
+            var record = GetRecord(entity);
+            var archetype = _idToArchetype[record.ArchetypeId];
+            return archetype.Signature.Has<T>();
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, EcsOperation.ComponentGet, entity.Id, CorrelationContext.Current);
+            return false; // Gracefully handle errors by returning false
+        }
     }
     
     /// <summary>
@@ -402,6 +494,18 @@ public sealed class World : IDisposable
     /// </summary>
     private void MoveEntityToArchetype<T>(Entity entity, Archetype fromArchetype, Archetype toArchetype, T newComponent = default) where T : unmanaged
     {
+        // Validate archetype transition
+        var transitionValidation = _validator.ValidateArchetypeTransition(
+            fromArchetype.ComponentTypes.ToArray(), 
+            toArchetype.ComponentTypes.ToArray());
+        
+        if (!transitionValidation.IsValid && transitionValidation.Severity == ValidationSeverity.Warning)
+        {
+            // Log warnings but don't throw
+            _logger.LogEntityOperation(LogLevel.Warning, EcsOperation.ArchetypeTransition, entity.Id, 
+                details: $"Validation warning: {transitionValidation.Message}");
+        }
+        
         // Log archetype transition
         if (_logger.IsEnabled(LogLevel.Debug))
         {
