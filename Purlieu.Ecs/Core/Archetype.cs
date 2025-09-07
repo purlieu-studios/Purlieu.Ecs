@@ -458,6 +458,73 @@ public static class ComponentDeltaCache
     }
     
     /// <summary>
+    /// Selectively invalidates delta cache entries involving the specified archetype.
+    /// This is more efficient than clearing the entire cache.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void InvalidateCacheForArchetype(ulong archetypeId)
+    {
+        var keysToRemove = new List<(ulong sourceId, ulong targetId)>();
+        
+        foreach (var kvp in _cache)
+        {
+            var key = kvp.Key;
+            
+            // Remove deltas involving this archetype as either source or target
+            if (key.sourceId == archetypeId || key.targetId == archetypeId)
+            {
+                keysToRemove.Add(key);
+            }
+        }
+        
+        foreach (var key in keysToRemove)
+        {
+            _cache.TryRemove(key, out _);
+        }
+    }
+    
+    /// <summary>
+    /// Selectively invalidates delta cache entries for archetype pairs that could be affected by component changes.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void InvalidateCacheForComponents(Type[] componentTypes)
+    {
+        if (componentTypes.Length == 0)
+            return;
+            
+        var componentSet = new HashSet<Type>(componentTypes);
+        var keysToRemove = new List<(ulong sourceId, ulong targetId)>();
+        
+        foreach (var kvp in _cache)
+        {
+            var delta = kvp.Value;
+            
+            // Check if any of the changed component types are involved in this delta
+            bool affected = false;
+            foreach (var componentType in componentTypes)
+            {
+                if (delta.SharedComponents.ContainsKey(componentType) ||
+                    delta.RemovedComponents.Contains(componentType) ||
+                    delta.AddedComponents.Contains(componentType))
+                {
+                    affected = true;
+                    break;
+                }
+            }
+            
+            if (affected)
+            {
+                keysToRemove.Add(kvp.Key);
+            }
+        }
+        
+        foreach (var key in keysToRemove)
+        {
+            _cache.TryRemove(key, out _);
+        }
+    }
+    
+    /// <summary>
     /// Clears the delta cache. Use sparingly as this forces recomputation.
     /// </summary>
     public static void ClearCache()

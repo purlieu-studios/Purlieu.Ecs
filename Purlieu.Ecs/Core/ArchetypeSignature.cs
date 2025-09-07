@@ -214,6 +214,49 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
         return count;
     }
     
+    /// <summary>
+    /// Checks if this signature contains the specified component type.
+    /// </summary>
+    public bool Has(Type componentType)
+    {
+        var typeId = ComponentTypeId.GetOrCreate(componentType);
+        return Has(typeId);
+    }
+    
+    /// <summary>
+    /// Checks if this archetype signature matches the given query constraints.
+    /// </summary>
+    public bool Matches(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature)
+    {
+        // Must have all required components
+        for (int i = 0; i < _bits.Length && i < withSignature._bits.Length; i++)
+        {
+            var required = withSignature._bits[i];
+            var actual = _bits[i];
+            
+            // Check if all required bits are set
+            if ((actual & required) != required)
+            {
+                return false;
+            }
+        }
+        
+        // Must not have any excluded components
+        for (int i = 0; i < _bits.Length && i < withoutSignature._bits.Length; i++)
+        {
+            var excluded = withoutSignature._bits[i];
+            var actual = _bits[i];
+            
+            // Check if any excluded bits are set
+            if ((actual & excluded) != 0)
+            {
+                return false;
+            }
+        }
+        
+        return true;
+    }
+    
     public bool Equals(ArchetypeSignature other)
     {
         if (_hashCode != other._hashCode)

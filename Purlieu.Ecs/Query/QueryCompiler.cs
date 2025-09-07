@@ -58,6 +58,49 @@ internal static class QueryCompiler
     }
     
     /// <summary>
+    /// Selectively invalidates compiled query cache entries that involve the specified component types.
+    /// This is more efficient than clearing the entire cache.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public static void InvalidateCacheForComponents(Type[] componentTypes)
+    {
+        if (componentTypes.Length == 0)
+            return;
+            
+        var componentSet = new HashSet<Type>(componentTypes);
+        var keysToRemove = new List<QuerySignature>();
+        
+        foreach (var kvp in _compiledQueries)
+        {
+            var signature = kvp.Key;
+            
+            // Check if the cached query involves any of the affected component types
+            // We check the expression string and both signature parts
+            bool affected = false;
+            foreach (var componentType in componentTypes)
+            {
+                if (signature._expressionString.Contains(componentType.Name) ||
+                    signature._withSignature.Has(componentType) ||
+                    signature._withoutSignature.Has(componentType))
+                {
+                    affected = true;
+                    break;
+                }
+            }
+            
+            if (affected)
+            {
+                keysToRemove.Add(signature);
+            }
+        }
+        
+        foreach (var key in keysToRemove)
+        {
+            _compiledQueries.Remove(key);
+        }
+    }
+    
+    /// <summary>
     /// Clears the compiled query cache.
     /// </summary>
     public static void ClearCache()
@@ -164,9 +207,9 @@ internal sealed class QueryOptimizationVisitor : ExpressionVisitor
 /// </summary>
 internal readonly struct QuerySignature : IEquatable<QuerySignature>
 {
-    private readonly ArchetypeSignature _withSignature;
-    private readonly ArchetypeSignature _withoutSignature;
-    private readonly string _expressionString;
+    public readonly ArchetypeSignature _withSignature;
+    public readonly ArchetypeSignature _withoutSignature;
+    public readonly string _expressionString;
     private readonly int _hashCode;
     
     public QuerySignature(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature, string expressionString)

@@ -170,6 +170,9 @@ public sealed class World
         _allArchetypes.Add(archetype);
         _archetypeIndex.AddArchetype(archetype);
         
+        // Use selective cache invalidation for new archetype
+        _archetypeIndex.InvalidateCacheForNewArchetype(signature);
+        
         return archetype;
     }
     
@@ -221,6 +224,12 @@ public sealed class World
     {
         ComponentRegistry.Register<T>();
         ComponentStorageFactory.Register<T>();
+        
+        // Use selective cache invalidation for newly registered component
+        var componentTypes = new Type[] { typeof(T) };
+        _archetypeIndex.InvalidateCacheForComponents(componentTypes);
+        ComponentDeltaCache.InvalidateCacheForComponents(componentTypes);
+        PurlieuEcs.Query.QueryCompiler.InvalidateCacheForComponents(componentTypes);
     }
     
     /// <summary>

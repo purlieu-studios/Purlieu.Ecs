@@ -182,13 +182,102 @@ internal sealed class ArchetypeIndex
     public int ArchetypeCount => _allArchetypes.Count;
     
     /// <summary>
-    /// Clears the query cache (useful for memory management).
+    /// Selectively invalidates query cache entries that are affected by the specified component types.
+    /// This is more efficient than clearing the entire cache as it only removes entries that could be affected.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void InvalidateCacheForComponents(Type[] componentTypes)
+    {
+        if (componentTypes.Length == 0)
+            return;
+
+        var keysToRemove = new List<QuerySignatureKey>();
+        var componentSet = new HashSet<Type>(componentTypes);
+        
+        foreach (var kvp in _queryCache)
+        {
+            var key = kvp.Key;
+            
+            // Check if this query involves any of the affected component types
+            if (QueryAffectedByComponents(key.WithSignature, key.WithoutSignature, componentSet))
+            {
+                keysToRemove.Add(key);
+            }
+        }
+        
+        // Remove affected cache entries
+        foreach (var key in keysToRemove)
+        {
+            _queryCache.Remove(key);
+        }
+        
+        _cacheInvalidations += keysToRemove.Count;
+        
+        // Only increment version if we actually invalidated something
+        if (keysToRemove.Count > 0)
+        {
+            _archetypeVersion++;
+        }
+    }
+    
+    /// <summary>
+    /// Invalidates cache entries affected by adding a new archetype with the specified signature.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void InvalidateCacheForNewArchetype(ArchetypeSignature newArchetypeSignature)
+    {
+        var keysToRemove = new List<QuerySignatureKey>();
+        
+        foreach (var kvp in _queryCache)
+        {
+            var key = kvp.Key;
+            
+            // Check if the new archetype would match this cached query
+            if (newArchetypeSignature.Matches(key.WithSignature, key.WithoutSignature))
+            {
+                keysToRemove.Add(key);
+            }
+        }
+        
+        // Remove affected cache entries
+        foreach (var key in keysToRemove)
+        {
+            _queryCache.Remove(key);
+        }
+        
+        _cacheInvalidations += keysToRemove.Count;
+        
+        if (keysToRemove.Count > 0)
+        {
+            _archetypeVersion++;
+        }
+    }
+    
+    /// <summary>
+    /// Clears the entire query cache (useful for memory management or when selective invalidation isn't sufficient).
     /// </summary>
     public void ClearCache()
     {
         _cacheInvalidations += _queryCache.Count;
         _queryCache.Clear();
         _archetypeVersion++;
+    }
+    
+    /// <summary>
+    /// Checks if a query signature would be affected by changes to the specified component types.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static bool QueryAffectedByComponents(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature, HashSet<Type> componentTypes)
+    {
+        // Query is affected if any of the changed components are in the with or without constraints
+        foreach (var componentType in componentTypes)
+        {
+            if (withSignature.Has(componentType) || withoutSignature.Has(componentType))
+            {
+                return true;
+            }
+        }
+        return false;
     }
     
     /// <summary>
@@ -495,29 +584,29 @@ internal readonly struct ArchetypeSet
 /// </summary>
 internal readonly struct QuerySignatureKey : IEquatable<QuerySignatureKey>
 {
-    private readonly ArchetypeSignature _withSignature;
-    private readonly ArchetypeSignature _withoutSignature;
-    private readonly int _version;
+    public readonly ArchetypeSignature WithSignature;
+    public readonly ArchetypeSignature WithoutSignature;
+    public readonly int Version;
     
     public QuerySignatureKey(ArchetypeSignature withSignature, ArchetypeSignature withoutSignature, int version)
     {
-        _withSignature = withSignature;
-        _withoutSignature = withoutSignature;
-        _version = version;
+        WithSignature = withSignature;
+        WithoutSignature = withoutSignature;
+        Version = version;
     }
     
     public bool Equals(QuerySignatureKey other)
     {
-        return _withSignature.Equals(other._withSignature) &&
-               _withoutSignature.Equals(other._withoutSignature) &&
-               _version == other._version;
+        return WithSignature.Equals(other.WithSignature) &&
+               WithoutSignature.Equals(other.WithoutSignature) &&
+               Version == other.Version;
     }
     
     public override bool Equals(object? obj) => obj is QuerySignatureKey other && Equals(other);
     
     public override int GetHashCode()
     {
-        return HashCode.Combine(_withSignature.GetHashCode(), _withoutSignature.GetHashCode(), _version);
+        return HashCode.Combine(WithSignature.GetHashCode(), WithoutSignature.GetHashCode(), Version);
     }
 }
 
