@@ -1,5 +1,6 @@
 using System.Reflection;
 using PurlieuEcs.Events;
+using PurlieuEcs.Logging;
 
 namespace PurlieuEcs.Core;
 
@@ -25,8 +26,14 @@ public sealed class World : IDisposable
     
     private readonly Dictionary<Type, object> _eventChannels;
     private readonly MemoryManager _memoryManager;
+    private readonly IEcsLogger _logger;
     
-    public World(int initialCapacity = 1024)
+    /// <summary>
+    /// Gets the logger instance for this world
+    /// </summary>
+    public IEcsLogger Logger => _logger;
+    
+    public World(int initialCapacity = 1024, IEcsLogger? logger = null)
     {
         _entityCapacity = initialCapacity;
         _entities = new EntityRecord[_entityCapacity];
@@ -41,6 +48,9 @@ public sealed class World : IDisposable
         _nextArchetypeId = 1; // 0 is reserved for empty archetype
         
         _eventChannels = new Dictionary<Type, object>(capacity: 32);
+        
+        // Initialize logger (use null logger if none provided)
+        _logger = logger ?? NullEcsLogger.Instance;
         
         // Initialize memory manager for automatic cleanup
         _memoryManager = new MemoryManager(this);
@@ -105,7 +115,15 @@ public sealed class World : IDisposable
             _entities[(int)id - 1] = new EntityRecord(version, 0, row);
         }
         
-        return new Entity(id, version);
+        var entity = new Entity(id, version);
+        
+        // Log entity creation
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityCreate, entity.Id);
+        }
+        
+        return entity;
     }
     
     /// <summary>
@@ -115,6 +133,12 @@ public sealed class World : IDisposable
     {
         if (!IsAlive(entity))
             return;
+        
+        // Log entity destruction
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityDestroy, entity.Id);
+        }
         
         ref var record = ref GetRecord(entity);
         
@@ -173,6 +197,13 @@ public sealed class World : IDisposable
         _idToArchetype[id] = archetype;
         _allArchetypes.Add(archetype);
         _archetypeIndex.AddArchetype(archetype);
+        
+        // Log archetype creation
+        if (_logger.IsEnabled(LogLevel.Information))
+        {
+            var signatureString = string.Join(",", componentTypes.Select(t => t.Name));
+            _logger.LogArchetypeOperation(LogLevel.Information, "Created", signatureString, 0);
+        }
         
         // Use selective cache invalidation for new archetype
         _archetypeIndex.InvalidateCacheForNewArchetype(signature);
@@ -243,6 +274,12 @@ public sealed class World : IDisposable
     {
         if (!IsAlive(entity))
             return;
+        
+        // Log component addition
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentAdd, entity.Id, typeof(T).Name);
+        }
             
         ref var record = ref GetRecord(entity);
         var currentArchetype = _idToArchetype[record.ArchetypeId];
@@ -275,6 +312,12 @@ public sealed class World : IDisposable
     {
         if (!IsAlive(entity))
             return;
+        
+        // Log component removal
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentRemove, entity.Id, typeof(T).Name);
+        }
             
         ref var record = ref GetRecord(entity);
         var currentArchetype = _idToArchetype[record.ArchetypeId];
@@ -311,6 +354,12 @@ public sealed class World : IDisposable
     {
         if (!IsAlive(entity))
             throw new ArgumentException("Entity is not alive", nameof(entity));
+        
+        // Log component access at trace level (very frequent operation)
+        if (_logger.IsEnabled(LogLevel.Trace))
+        {
+            _logger.LogEntityOperation(LogLevel.Trace, EcsOperation.ComponentGet, entity.Id, typeof(T).Name);
+        }
             
         var record = GetRecord(entity);
         var archetype = _idToArchetype[record.ArchetypeId];
@@ -353,6 +402,13 @@ public sealed class World : IDisposable
     /// </summary>
     private void MoveEntityToArchetype<T>(Entity entity, Archetype fromArchetype, Archetype toArchetype, T newComponent = default) where T : unmanaged
     {
+        // Log archetype transition
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ArchetypeTransition, entity.Id, 
+                details: $"From:{fromArchetype.Id} To:{toArchetype.Id}");
+        }
+        
         ref var record = ref GetRecord(entity);
         var oldRow = record.Row;
         

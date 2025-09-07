@@ -478,6 +478,15 @@ public sealed class Chunk
     }
     
     /// <summary>
+    /// Gets a span of all entities in this chunk.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ReadOnlySpan<Entity> GetEntities()
+    {
+        return new ReadOnlySpan<Entity>(_entities, 0, _count);
+    }
+    
+    /// <summary>
     /// Gets a typed span for component access.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]

@@ -35,7 +35,10 @@
       "Bash(git rm:*)",
       "Bash(verbosity=detailed)",
       "Read(//c//**)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(del \"C:\\Purlieu.Ecs\\Purlieu.Ecs.Tests\\Core\\EASY_ApiTests.cs\")"
     ],
     "deny": [],
     "ask": []
