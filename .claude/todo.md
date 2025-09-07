@@ -123,3 +123,25 @@ Guardrails: analyzers or tests for “no engine types in ECS assemblies”.
 Docs: update CLAUDE.md with commands/tasks; include movement demo usage.
 
 Tag v0.0.1: publish package locally or as a git submodule for your game.
+
+## Production Readiness Tasks (Priority)
+
+### Critical Infrastructure Fixes
+- [ ] Fix reflection boxing in World.cs:422 - Replace with cached delegates or source generation
+- [ ] Add thread safety - Implement concurrent access patterns for World, queries, and components
+- [ ] Complete error handling - Add try/catch/recovery in all public APIs with proper logging
+- [ ] Fix memory management - Add SignatureArrayPool cleanup, chunk defragmentation, memory monitoring
+
+### Core Infrastructure
+- [ ] Implement production logging - Add structured logging with correlation IDs and performance counters
+- [ ] Add validation framework - Runtime validation for system statefulness and component constraints
+- [ ] Write critical tests - Concurrent access, memory leaks, error recovery, validation tests
+
+### Stability Improvements
+- [ ] Implement ComponentTypeId thread-safe initialization
+- [ ] Cache SystemScheduler.RegisterSystem reflection calls
+- [ ] Complete one-frame event/component auto-clearing in World.ClearOneFrameData
+- [ ] Add chunk defragmentation strategy for long-running applications
+
+### Production Deployment
+- [ ] Implement health checks and monitoring hooks for production deployment
