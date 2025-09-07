@@ -195,15 +195,16 @@ internal readonly struct QuerySignature : IEquatable<QuerySignature>
 internal static class QueryStrategies
 {
     /// <summary>
-    /// Executes a simple component access pattern with SIMD optimization.
+    /// Executes a simple component access pattern with SIMD optimization using direct chunk memory.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static IEnumerable<T> FastComponentAccess<T>(Chunk chunk) where T : struct
     {
-        var span = chunk.GetSpan<T>();
+        // Get memory directly from chunk storage to avoid allocations
+        var memory = chunk.GetMemory<T>();
         
         // Use custom enumerator to avoid allocations
-        return new SpanEnumerable<T>(span);
+        return new SpanEnumerable<T>(memory);
     }
     
     /// <summary>
@@ -214,10 +215,10 @@ internal static class QueryStrategies
         where T1 : struct 
         where T2 : struct
     {
-        var span1 = chunk.GetSpan<T1>();
-        var span2 = chunk.GetSpan<T2>();
+        var memory1 = chunk.GetMemory<T1>();
+        var memory2 = chunk.GetMemory<T2>();
         
-        return new DualSpanEnumerable<T1, T2>(span1, span2);
+        return new DualSpanEnumerable<T1, T2>(memory1, memory2);
     }
     
     /// <summary>
@@ -226,173 +227,177 @@ internal static class QueryStrategies
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static IEnumerable<T> FastFilteredAccess<T>(Chunk chunk, Func<T, bool> predicate) where T : struct
     {
-        var span = chunk.GetSpan<T>();
+        var memory = chunk.GetMemory<T>();
         
-        return new FilteredSpanEnumerable<T>(span, predicate);
+        return new FilteredSpanEnumerable<T>(memory, predicate);
     }
 }
 
 /// <summary>
-/// Zero-allocation enumerator for span-based iteration.
+/// Zero-allocation enumerator for span-based iteration using direct memory access.
 /// </summary>
-internal readonly struct SpanEnumerable<T> : IEnumerable<T>
+internal readonly struct SpanEnumerable<T> : IEnumerable<T> where T : struct
 {
-    private readonly T[] _array;
+    private readonly ReadOnlyMemory<T> _memory;
     
-    public SpanEnumerable(ReadOnlySpan<T> span)
+    public SpanEnumerable(ReadOnlyMemory<T> memory)
     {
-        _array = span.ToArray();
+        _memory = memory;
     }
     
-    public SpanEnumerator<T> GetEnumerator() => new(_array);
-    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new SpanEnumeratorBoxed<T>(_array);
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => new SpanEnumeratorBoxed<T>(_array);
+    public SpanEnumerator<T> GetEnumerator() => new(_memory.Span);
+    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new SpanEnumeratorBoxed<T>(_memory);
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => new SpanEnumeratorBoxed<T>(_memory);
 }
 
 /// <summary>
-/// High-performance span enumerator.
+/// High-performance span enumerator using direct span access.
 /// </summary>
 internal ref struct SpanEnumerator<T>
 {
-    private readonly T[] _array;
+    private readonly ReadOnlySpan<T> _span;
     private int _index;
     
-    public SpanEnumerator(T[] array)
+    public SpanEnumerator(ReadOnlySpan<T> span)
     {
-        _array = array;
+        _span = span;
         _index = -1;
     }
     
-    public T Current => _array[_index];
+    public T Current => _span[_index];
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool MoveNext() => ++_index < _array.Length;
+    public bool MoveNext() => ++_index < _span.Length;
 }
 
 /// <summary>
-/// Boxed version for interface compatibility.
+/// Boxed version for interface compatibility using Memory<T> to avoid allocations.
 /// </summary>
-internal sealed class SpanEnumeratorBoxed<T> : IEnumerator<T>
+internal sealed class SpanEnumeratorBoxed<T> : IEnumerator<T> where T : struct
 {
-    private readonly T[] _array;
+    private readonly ReadOnlyMemory<T> _memory;
     private int _index;
     
-    public SpanEnumeratorBoxed(T[] array)
+    public SpanEnumeratorBoxed(ReadOnlyMemory<T> memory)
     {
-        _array = array;
+        _memory = memory;
         _index = -1;
     }
     
-    public T Current => _array[_index];
+    public T Current => _memory.Span[_index];
     object? System.Collections.IEnumerator.Current => Current;
     
-    public bool MoveNext() => ++_index < _array.Length;
+    public bool MoveNext() => ++_index < _memory.Length;
     public void Reset() => _index = -1;
     public void Dispose() { }
 }
 
 /// <summary>
-/// Zero-allocation enumerator for dual-component iteration.
+/// Zero-allocation enumerator for dual-component iteration using direct memory access.
 /// </summary>
-internal readonly struct DualSpanEnumerable<T1, T2> : IEnumerable<(T1, T2)>
+internal readonly struct DualSpanEnumerable<T1, T2> : IEnumerable<(T1, T2)> 
+    where T1 : struct 
+    where T2 : struct
 {
-    private readonly T1[] _array1;
-    private readonly T2[] _array2;
+    private readonly ReadOnlyMemory<T1> _memory1;
+    private readonly ReadOnlyMemory<T2> _memory2;
     
-    public DualSpanEnumerable(ReadOnlySpan<T1> span1, ReadOnlySpan<T2> span2)
+    public DualSpanEnumerable(ReadOnlyMemory<T1> memory1, ReadOnlyMemory<T2> memory2)
     {
-        _array1 = span1.ToArray();
-        _array2 = span2.ToArray();
+        _memory1 = memory1;
+        _memory2 = memory2;
     }
     
-    public DualSpanEnumerator<T1, T2> GetEnumerator() => new(_array1, _array2);
-    IEnumerator<(T1, T2)> IEnumerable<(T1, T2)>.GetEnumerator() => new DualSpanEnumeratorBoxed<T1, T2>(_array1, _array2);
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => new DualSpanEnumeratorBoxed<T1, T2>(_array1, _array2);
+    public DualSpanEnumerator<T1, T2> GetEnumerator() => new(_memory1.Span, _memory2.Span);
+    IEnumerator<(T1, T2)> IEnumerable<(T1, T2)>.GetEnumerator() => new DualSpanEnumeratorBoxed<T1, T2>(_memory1, _memory2);
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => new DualSpanEnumeratorBoxed<T1, T2>(_memory1, _memory2);
 }
 
 /// <summary>
-/// High-performance dual span enumerator.
+/// High-performance dual span enumerator using direct span access.
 /// </summary>
 internal ref struct DualSpanEnumerator<T1, T2>
 {
-    private readonly T1[] _array1;
-    private readonly T2[] _array2;
+    private readonly ReadOnlySpan<T1> _span1;
+    private readonly ReadOnlySpan<T2> _span2;
     private int _index;
     
-    public DualSpanEnumerator(T1[] array1, T2[] array2)
+    public DualSpanEnumerator(ReadOnlySpan<T1> span1, ReadOnlySpan<T2> span2)
     {
-        _array1 = array1;
-        _array2 = array2;
+        _span1 = span1;
+        _span2 = span2;
         _index = -1;
     }
     
-    public (T1, T2) Current => (_array1[_index], _array2[_index]);
+    public (T1, T2) Current => (_span1[_index], _span2[_index]);
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
-    public bool MoveNext() => ++_index < Math.Min(_array1.Length, _array2.Length);
+    public bool MoveNext() => ++_index < Math.Min(_span1.Length, _span2.Length);
 }
 
 /// <summary>
-/// Boxed version for dual span enumeration.
+/// Boxed version for dual span enumeration using Memory<T> to avoid allocations.
 /// </summary>
 internal sealed class DualSpanEnumeratorBoxed<T1, T2> : IEnumerator<(T1, T2)>
+    where T1 : struct
+    where T2 : struct
 {
-    private readonly T1[] _array1;
-    private readonly T2[] _array2;
+    private readonly ReadOnlyMemory<T1> _memory1;
+    private readonly ReadOnlyMemory<T2> _memory2;
     private int _index;
     
-    public DualSpanEnumeratorBoxed(T1[] array1, T2[] array2)
+    public DualSpanEnumeratorBoxed(ReadOnlyMemory<T1> memory1, ReadOnlyMemory<T2> memory2)
     {
-        _array1 = array1;
-        _array2 = array2;
+        _memory1 = memory1;
+        _memory2 = memory2;
         _index = -1;
     }
     
-    public (T1, T2) Current => (_array1[_index], _array2[_index]);
+    public (T1, T2) Current => (_memory1.Span[_index], _memory2.Span[_index]);
     object? System.Collections.IEnumerator.Current => Current;
     
-    public bool MoveNext() => ++_index < Math.Min(_array1.Length, _array2.Length);
+    public bool MoveNext() => ++_index < Math.Min(_memory1.Length, _memory2.Length);
     public void Reset() => _index = -1;
     public void Dispose() { }
 }
 
 /// <summary>
-/// Zero-allocation enumerator for filtered span iteration.
+/// Zero-allocation enumerator for filtered span iteration using direct memory access.
 /// </summary>
-internal readonly struct FilteredSpanEnumerable<T> : IEnumerable<T>
+internal readonly struct FilteredSpanEnumerable<T> : IEnumerable<T> where T : struct
 {
-    private readonly T[] _array;
+    private readonly ReadOnlyMemory<T> _memory;
     private readonly Func<T, bool> _predicate;
     
-    public FilteredSpanEnumerable(ReadOnlySpan<T> span, Func<T, bool> predicate)
+    public FilteredSpanEnumerable(ReadOnlyMemory<T> memory, Func<T, bool> predicate)
     {
-        _array = span.ToArray();
+        _memory = memory;
         _predicate = predicate;
     }
     
-    public FilteredSpanEnumerator<T> GetEnumerator() => new(_array, _predicate);
-    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new FilteredSpanEnumeratorBoxed<T>(_array, _predicate);
-    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => new FilteredSpanEnumeratorBoxed<T>(_array, _predicate);
+    public FilteredSpanEnumerator<T> GetEnumerator() => new(_memory.Span, _predicate);
+    IEnumerator<T> IEnumerable<T>.GetEnumerator() => new FilteredSpanEnumeratorBoxed<T>(_memory, _predicate);
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => new FilteredSpanEnumeratorBoxed<T>(_memory, _predicate);
 }
 
 /// <summary>
-/// High-performance filtered span enumerator.
+/// High-performance filtered span enumerator using direct span access.
 /// </summary>
 internal ref struct FilteredSpanEnumerator<T>
 {
-    private readonly T[] _array;
+    private readonly ReadOnlySpan<T> _span;
     private readonly Func<T, bool> _predicate;
     private int _index;
     
-    public FilteredSpanEnumerator(T[] array, Func<T, bool> predicate)
+    public FilteredSpanEnumerator(ReadOnlySpan<T> span, Func<T, bool> predicate)
     {
-        _array = array;
+        _span = span;
         _predicate = predicate;
         _index = -1;
         MoveToNext();
     }
     
-    public T Current => _array[_index];
+    public T Current => _span[_index];
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool MoveNext()
@@ -404,9 +409,9 @@ internal ref struct FilteredSpanEnumerator<T>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private bool MoveToNext()
     {
-        while (_index < _array.Length)
+        while (_index < _span.Length)
         {
-            if (_predicate(_array[_index]))
+            if (_predicate(_span[_index]))
                 return true;
             _index++;
         }
@@ -415,23 +420,23 @@ internal ref struct FilteredSpanEnumerator<T>
 }
 
 /// <summary>
-/// Boxed version for filtered span enumeration.
+/// Boxed version for filtered span enumeration using Memory<T> to avoid allocations.
 /// </summary>
-internal sealed class FilteredSpanEnumeratorBoxed<T> : IEnumerator<T>
+internal sealed class FilteredSpanEnumeratorBoxed<T> : IEnumerator<T> where T : struct
 {
-    private readonly T[] _array;
+    private readonly ReadOnlyMemory<T> _memory;
     private readonly Func<T, bool> _predicate;
     private int _index;
     
-    public FilteredSpanEnumeratorBoxed(T[] array, Func<T, bool> predicate)
+    public FilteredSpanEnumeratorBoxed(ReadOnlyMemory<T> memory, Func<T, bool> predicate)
     {
-        _array = array;
+        _memory = memory;
         _predicate = predicate;
         _index = -1;
         MoveToNext();
     }
     
-    public T Current => _array[_index];
+    public T Current => _memory.Span[_index];
     object? System.Collections.IEnumerator.Current => Current;
     
     public bool MoveNext()
@@ -442,9 +447,9 @@ internal sealed class FilteredSpanEnumeratorBoxed<T> : IEnumerator<T>
     
     private bool MoveToNext()
     {
-        while (_index < _array.Length)
+        while (_index < _memory.Length)
         {
-            if (_predicate(_array[_index]))
+            if (_predicate(_memory.Span[_index]))
                 return true;
             _index++;
         }

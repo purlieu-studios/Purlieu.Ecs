@@ -65,31 +65,12 @@ internal sealed class ArchetypeIndex
         
         var matchingArchetypes = new List<Archetype>(capacity: 16);
         
-        // Extract component types for bloom filter pre-filtering
-        var withTypes = withSignature.GetComponentTypes();
-        var withoutTypes = withoutSignature.GetComponentTypes();
-        
         // Fast path: if no required components, only need to check exclusions
         if (withSignature.Equals(new ArchetypeSignature()))
         {
             foreach (var archetype in _allArchetypes)
             {
-                // Use bloom filter for fast rejection of excluded components
-                bool mightContainExcluded = false;
-                foreach (var excludedType in withoutTypes)
-                {
-                    if (archetype.MightHaveComponent(excludedType))
-                    {
-                        // Bloom filter says it might have excluded component, need exact check
-                        if (archetype.Signature.HasIntersection(withoutSignature))
-                        {
-                            mightContainExcluded = true;
-                            break;
-                        }
-                    }
-                }
-                
-                if (!mightContainExcluded)
+                if (!archetype.Signature.HasIntersection(withoutSignature))
                 {
                     matchingArchetypes.Add(archetype);
                 }
@@ -97,33 +78,13 @@ internal sealed class ArchetypeIndex
         }
         else
         {
-            // Optimized path with bloom filter pre-filtering
+            // Optimized path: iterate through archetypes and use bitwise operations
+            // This is still O(archetypes) but with highly optimized inner loop
             foreach (var archetype in _allArchetypes)
             {
-                // Quick bloom filter check first - if it definitely doesn't have required components, skip
-                if (!archetype.MightHaveAllComponents(withTypes))
-                    continue;
-                
-                // Check for excluded components with bloom filter
-                bool mightContainExcluded = false;
-                foreach (var excludedType in withoutTypes)
-                {
-                    if (archetype.MightHaveComponent(excludedType))
-                    {
-                        // Need exact check since bloom filter has false positives
-                        if (archetype.Signature.HasIntersection(withoutSignature))
-                        {
-                            mightContainExcluded = true;
-                            break;
-                        }
-                    }
-                }
-                
-                if (mightContainExcluded)
-                    continue;
-                
-                // Final exact check for required components (bloom filter might have false positives)
-                if (archetype.Signature.IsSupersetOf(withSignature))
+                // Fast bitwise check for component requirements
+                if (archetype.Signature.IsSupersetOf(withSignature) && 
+                    !archetype.Signature.HasIntersection(withoutSignature))
                 {
                     matchingArchetypes.Add(archetype);
                 }

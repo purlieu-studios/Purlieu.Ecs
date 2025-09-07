@@ -148,6 +148,15 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : struct
     }
     
     /// <summary>
+    /// Gets a typed memory for allocation-free enumerators.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ReadOnlyMemory<T> GetMemory(int count)
+    {
+        return new ReadOnlyMemory<T>(_components, 0, count);
+    }
+    
+    /// <summary>
     /// Gets whether SIMD operations are supported for this component type.
     /// </summary>
     public bool IsSimdSupported => _isSimdSupported;
@@ -298,6 +307,22 @@ public sealed class Chunk
         }
         
         return Span<T>.Empty;
+    }
+    
+    /// <summary>
+    /// Gets a typed memory for component access to avoid allocations in enumerators.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public ReadOnlyMemory<T> GetMemory<T>() where T : struct
+    {
+        var type = typeof(T);
+        if (_typeToIndex.TryGetValue(type, out var index))
+        {
+            var storage = _componentStorages[index] as ComponentStorage<T>;
+            return storage != null ? storage.GetMemory(_count) : ReadOnlyMemory<T>.Empty;
+        }
+        
+        return ReadOnlyMemory<T>.Empty;
     }
     
     /// <summary>
