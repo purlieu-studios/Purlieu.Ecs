@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
 
 namespace PurlieuEcs.Core;
 
@@ -296,4 +297,178 @@ internal sealed class ComponentLocalityComparer : IComparer<Type>
         
         return 1; // Byte aligned
     }
+}
+
+/// <summary>
+/// Represents the delta between two archetypes for efficient entity migration.
+/// Caches component mapping to avoid repeated computation during archetype transitions.
+/// </summary>
+public sealed class ComponentDelta
+{
+    /// <summary>
+    /// Shared components that exist in both source and target archetypes.
+    /// Key: component type, Value: (sourceIndex, targetIndex) for direct copying.
+    /// </summary>
+    public readonly Dictionary<Type, (int sourceIndex, int targetIndex)> SharedComponents;
+    
+    /// <summary>
+    /// Components that exist only in the source archetype (will be discarded).
+    /// </summary>
+    public readonly HashSet<Type> RemovedComponents;
+    
+    /// <summary>
+    /// Components that exist only in the target archetype (will be default-initialized).
+    /// </summary>
+    public readonly HashSet<Type> AddedComponents;
+    
+    /// <summary>
+    /// Pre-sorted array of shared component types for cache-friendly iteration.
+    /// </summary>
+    public readonly Type[] SharedComponentTypes;
+    
+    /// <summary>
+    /// Source archetype ID for validation.
+    /// </summary>
+    public readonly ulong SourceArchetypeId;
+    
+    /// <summary>
+    /// Target archetype ID for validation.
+    /// </summary>
+    public readonly ulong TargetArchetypeId;
+    
+    internal ComponentDelta(Archetype sourceArchetype, Archetype targetArchetype)
+    {
+        SourceArchetypeId = sourceArchetype.Id;
+        TargetArchetypeId = targetArchetype.Id;
+        
+        SharedComponents = new Dictionary<Type, (int, int)>();
+        RemovedComponents = new HashSet<Type>();
+        AddedComponents = new HashSet<Type>();
+        
+        var sourceTypes = sourceArchetype.ComponentTypes;
+        var targetTypes = targetArchetype.ComponentTypes;
+        
+        // Build component type lookup for target archetype for O(1) lookups
+        var targetTypeLookup = new Dictionary<Type, int>();
+        for (int i = 0; i < targetTypes.Count; i++)
+        {
+            targetTypeLookup[targetTypes[i]] = i;
+        }
+        
+        // Identify shared and removed components from source perspective
+        for (int sourceIndex = 0; sourceIndex < sourceTypes.Count; sourceIndex++)
+        {
+            var componentType = sourceTypes[sourceIndex];
+            
+            if (targetTypeLookup.TryGetValue(componentType, out var targetIndex))
+            {
+                // Component exists in both archetypes
+                SharedComponents[componentType] = (sourceIndex, targetIndex);
+            }
+            else
+            {
+                // Component exists only in source (will be removed)
+                RemovedComponents.Add(componentType);
+            }
+        }
+        
+        // Identify added components (exist only in target)
+        var sourceTypeSet = new HashSet<Type>(sourceTypes);
+        for (int i = 0; i < targetTypes.Count; i++)
+        {
+            var componentType = targetTypes[i];
+            if (!sourceTypeSet.Contains(componentType))
+            {
+                AddedComponents.Add(componentType);
+            }
+        }
+        
+        // Create sorted array for cache-friendly iteration
+        SharedComponentTypes = SharedComponents.Keys.ToArray();
+        
+        // Sort by component priority for better cache locality during migration
+        Array.Sort(SharedComponentTypes, ComponentLocalityComparer.Instance);
+    }
+    
+    /// <summary>
+    /// Gets the number of components that will be copied during migration.
+    /// </summary>
+    public int SharedComponentCount => SharedComponents.Count;
+    
+    /// <summary>
+    /// Gets the migration efficiency as a percentage (0-100).
+    /// Higher values indicate more components are preserved vs copied.
+    /// </summary>
+    public double MigrationEfficiency
+    {
+        get
+        {
+            int totalComponents = SharedComponents.Count + RemovedComponents.Count + AddedComponents.Count;
+            if (totalComponents == 0) return 100.0;
+            
+            return (double)SharedComponents.Count / totalComponents * 100.0;
+        }
+    }
+}
+
+/// <summary>
+/// Manages and caches ComponentDelta instances for efficient archetype migrations.
+/// Uses a concurrent cache to avoid recomputing deltas for frequently used archetype pairs.
+/// </summary>
+public static class ComponentDeltaCache
+{
+    private static readonly ConcurrentDictionary<(ulong sourceId, ulong targetId), ComponentDelta> _cache = new();
+    private static long _cacheHits = 0;
+    private static long _cacheMisses = 0;
+    
+    /// <summary>
+    /// Gets or creates a ComponentDelta for the specified archetype transition.
+    /// Results are cached for subsequent use.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal static ComponentDelta GetDelta(Archetype sourceArchetype, Archetype targetArchetype)
+    {
+        var key = (sourceArchetype.Id, targetArchetype.Id);
+        
+        if (_cache.TryGetValue(key, out var cachedDelta))
+        {
+            Interlocked.Increment(ref _cacheHits);
+            return cachedDelta;
+        }
+        
+        // Create new delta and cache it
+        var delta = new ComponentDelta(sourceArchetype, targetArchetype);
+        _cache.TryAdd(key, delta);
+        
+        Interlocked.Increment(ref _cacheMisses);
+        return delta;
+    }
+    
+    /// <summary>
+    /// Gets cache performance statistics.
+    /// </summary>
+    public static (long hits, long misses, double hitRate) GetCacheStats()
+    {
+        var hits = Interlocked.Read(ref _cacheHits);
+        var misses = Interlocked.Read(ref _cacheMisses);
+        var total = hits + misses;
+        var hitRate = total > 0 ? (double)hits / total * 100.0 : 0.0;
+        
+        return (hits, misses, hitRate);
+    }
+    
+    /// <summary>
+    /// Clears the delta cache. Use sparingly as this forces recomputation.
+    /// </summary>
+    public static void ClearCache()
+    {
+        _cache.Clear();
+        Interlocked.Exchange(ref _cacheHits, 0);
+        Interlocked.Exchange(ref _cacheMisses, 0);
+    }
+    
+    /// <summary>
+    /// Gets the current number of cached deltas.
+    /// </summary>
+    public static int CacheSize => _cache.Count;
 }

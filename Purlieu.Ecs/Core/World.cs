@@ -362,27 +362,14 @@ public sealed class World
                 var oldChunk = oldChunks[oldChunkIndex];
                 var newChunk = newChunks[newChunkIndex];
                 
-                // Copy each component that exists in both archetypes
-                // Avoid LINQ Contains() call for better performance
-                var toComponentTypes = toArchetype.ComponentTypes;
+                // Use delta-based migration for efficient component copying
+                var delta = ComponentDeltaCache.GetDelta(fromArchetype, toArchetype);
                 
-                foreach (var componentType in fromArchetype.ComponentTypes)
+                // Copy shared components using pre-computed indices
+                foreach (var componentType in delta.SharedComponentTypes)
                 {
-                    // Manual search to avoid potential LINQ allocations
-                    bool found = false;
-                    for (int i = 0; i < toComponentTypes.Count; i++)
-                    {
-                        if (toComponentTypes[i] == componentType)
-                        {
-                            found = true;
-                            break;
-                        }
-                    }
-                    
-                    if (found)
-                    {
-                        ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
-                    }
+                    var (sourceIndex, targetIndex) = delta.SharedComponents[componentType];
+                    ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
                 }
             }
         }
