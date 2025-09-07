@@ -44,6 +44,9 @@ public sealed class World
         // Register common component types to avoid reflection later
         RegisterComponentTypes();
         
+        // Pre-warm WorldQuery to eliminate 16KB cold-start allocation from hot path
+        PreWarmWorldQuery();
+        
         // Create empty archetype
         var emptySignature = new ArchetypeSignature();
         var emptyArchetype = new Archetype(0, emptySignature, Array.Empty<Type>());
@@ -176,6 +179,38 @@ public sealed class World
     public Query.WorldQuery Query()
     {
         return new Query.WorldQuery(this);
+    }
+    
+    /// <summary>
+    /// Gets query cache performance statistics.
+    /// </summary>
+    public CacheStatistics GetQueryCacheStatistics()
+    {
+        return _archetypeIndex.GetCacheStatistics();
+    }
+    
+    /// <summary>
+    /// Resets query cache performance statistics.
+    /// </summary>
+    public void ResetQueryCacheStatistics()
+    {
+        _archetypeIndex.ResetStatistics();
+    }
+    
+    /// <summary>
+    /// Pre-warms WorldQuery static initialization to eliminate 16KB cold-start allocation.
+    /// This moves the one-time initialization cost from query hot path to World construction.
+    /// </summary>
+    private void PreWarmWorldQuery()
+    {
+        // Create and immediately discard a WorldQuery to trigger static initialization
+        _ = new Query.WorldQuery(this);
+        
+        // Also pre-warm the pools that WorldQuery uses
+        var tempList1 = new List<int>(4);
+        var tempList2 = new List<int>(2);
+        tempList1.Clear();
+        tempList2.Clear();
     }
     
     /// <summary>

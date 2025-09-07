@@ -16,6 +16,11 @@ internal sealed class ArchetypeIndex
     private readonly Dictionary<QuerySignatureKey, ArchetypeSet> _queryCache;
     private int _archetypeVersion; // Incremented when archetypes change to invalidate cache
     
+    // Cache performance metrics
+    private long _cacheHits;
+    private long _cacheMisses;
+    private long _cacheInvalidations;
+    
     public ArchetypeIndex(int expectedArchetypes = 64)
     {
         _signatureBucketsIndex = new Dictionary<ulong, List<Archetype>>(expectedArchetypes);
@@ -46,6 +51,7 @@ internal sealed class ArchetypeIndex
         
         // Invalidate cache when archetypes change
         _archetypeVersion++;
+        _cacheInvalidations += _queryCache.Count; // Track how many entries we're invalidating
         _queryCache.Clear();
     }
     
@@ -60,8 +66,11 @@ internal sealed class ArchetypeIndex
         // Check cache first
         if (_queryCache.TryGetValue(queryKey, out var cachedResult))
         {
+            _cacheHits++;
             return cachedResult;
         }
+        
+        _cacheMisses++;
         
         // Use pooled small array for common case (≤16 archetypes) to minimize allocations
         const int SmallResultLimit = 16;
@@ -175,8 +184,35 @@ internal sealed class ArchetypeIndex
     /// </summary>
     public void ClearCache()
     {
+        _cacheInvalidations += _queryCache.Count;
         _queryCache.Clear();
         _archetypeVersion++;
+    }
+    
+    /// <summary>
+    /// Gets cache performance statistics.
+    /// </summary>
+    public CacheStatistics GetCacheStatistics()
+    {
+        return new CacheStatistics
+        {
+            Hits = _cacheHits,
+            Misses = _cacheMisses,
+            Invalidations = _cacheInvalidations,
+            CurrentSize = _queryCache.Count,
+            HitRate = _cacheHits + _cacheMisses > 0 ? (double)_cacheHits / (_cacheHits + _cacheMisses) : 0.0,
+            ArchetypeGeneration = _archetypeVersion
+        };
+    }
+    
+    /// <summary>
+    /// Resets cache performance statistics.
+    /// </summary>
+    public void ResetStatistics()
+    {
+        _cacheHits = 0;
+        _cacheMisses = 0;
+        _cacheInvalidations = 0;
     }
 }
 
@@ -313,5 +349,25 @@ internal readonly struct QuerySignatureKey : IEquatable<QuerySignatureKey>
     public override int GetHashCode()
     {
         return HashCode.Combine(_withSignature.GetHashCode(), _withoutSignature.GetHashCode(), _version);
+    }
+}
+
+/// <summary>
+/// Cache performance statistics for profiling and optimization.
+/// </summary>
+public readonly struct CacheStatistics
+{
+    public long Hits { get; init; }
+    public long Misses { get; init; }
+    public long Invalidations { get; init; }
+    public int CurrentSize { get; init; }
+    public double HitRate { get; init; }
+    public int ArchetypeGeneration { get; init; }
+    
+    public long TotalQueries => Hits + Misses;
+    
+    public override string ToString()
+    {
+        return $"Cache: {Hits}H/{Misses}M (hit rate: {HitRate:P1}), {Invalidations} invalidations, {CurrentSize} cached, gen {ArchetypeGeneration}";
     }
 }
