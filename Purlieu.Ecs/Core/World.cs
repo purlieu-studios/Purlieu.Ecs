@@ -33,6 +33,7 @@ public sealed class World : IDisposable
     private readonly IEcsLogger _logger;
     private readonly IEcsValidator _validator;
     private readonly IEcsHealthMonitor _healthMonitor;
+    private readonly SystemScheduler _systemScheduler;
     
     // Thread safety infrastructure
     internal readonly ReaderWriterLockSlim _queryMutationLock = new(LockRecursionPolicy.NoRecursion);
@@ -52,6 +53,11 @@ public sealed class World : IDisposable
     /// Gets the health monitor instance for this world
     /// </summary>
     public IEcsHealthMonitor HealthMonitor => _healthMonitor;
+    
+    /// <summary>
+    /// Gets the system scheduler for this world
+    /// </summary>
+    public SystemScheduler SystemScheduler => _systemScheduler;
     
     public World(int initialCapacity = 1024, IEcsLogger? logger = null, IEcsValidator? validator = null, IEcsHealthMonitor? healthMonitor = null)
     {
@@ -87,6 +93,9 @@ public sealed class World : IDisposable
 #else
             NullEcsHealthMonitor.Instance;
 #endif
+        
+        // Initialize system scheduler with logging and monitoring
+        _systemScheduler = new SystemScheduler(_logger, _healthMonitor);
         
         // Initialize memory manager for automatic cleanup
         _memoryManager = new MemoryManager(this);
@@ -1129,6 +1138,92 @@ public sealed class World : IDisposable
     {
         return _memoryManager.GetStatistics();
     }
+    
+    #region System Management
+    
+    /// <summary>
+    /// Register a system for execution in this world
+    /// </summary>
+    public void RegisterSystem<T>(T system) where T : class, ISystem
+    {
+        ArgumentNullException.ThrowIfNull(system);
+        _systemScheduler.RegisterSystem(system);
+        
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Registered system: {typeof(T).Name}");
+        }
+    }
+    
+    /// <summary>
+    /// Register a function as a system
+    /// </summary>
+    public void RegisterSystem(SystemFunction function, SystemDependencies dependencies, 
+        SystemPhase phase = SystemPhase.Update, int priority = 0, string? name = null)
+    {
+        ArgumentNullException.ThrowIfNull(function);
+        _systemScheduler.RegisterSystem(function, dependencies, phase, priority, name);
+        
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Registered function system: {name ?? "Anonymous"}");
+        }
+    }
+    
+    /// <summary>
+    /// Unregister a system
+    /// </summary>
+    public void UnregisterSystem<T>() where T : class, ISystem
+    {
+        _systemScheduler.UnregisterSystem<T>();
+        
+        if (_logger.IsEnabled(LogLevel.Debug))
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Unregistered system: {typeof(T).Name}");
+        }
+    }
+    
+    /// <summary>
+    /// Execute all systems for a specific phase
+    /// </summary>
+    public void ExecutePhase(SystemPhase phase, float deltaTime)
+    {
+        try
+        {
+            _systemScheduler.ExecutePhase(phase, this, deltaTime);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, EcsOperation.SystemExecute, 0, CorrelationContext.Current);
+            throw;
+        }
+    }
+    
+    /// <summary>
+    /// Execute all system phases in order (complete frame update)
+    /// </summary>
+    public void Update(float deltaTime)
+    {
+        try
+        {
+            _systemScheduler.ExecuteAllPhases(this, deltaTime);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, EcsOperation.SystemExecute, 0, CorrelationContext.Current);
+            throw;
+        }
+    }
+    
+    /// <summary>
+    /// Get system execution statistics
+    /// </summary>
+    public SystemExecutionStatistics GetSystemStatistics()
+    {
+        return _systemScheduler.GetStatistics();
+    }
+    
+    #endregion
     
     /// <summary>
     /// Disposes the world and cleans up all resources.

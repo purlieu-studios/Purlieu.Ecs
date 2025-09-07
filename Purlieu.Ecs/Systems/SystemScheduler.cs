@@ -6,9 +6,11 @@ using PurlieuEcs.Core;
 namespace PurlieuEcs.Systems;
 
 /// <summary>
+/// Legacy system scheduler - deprecated, use PurlieuEcs.Core.SystemScheduler instead.
 /// Manages system execution order and performance tracking.
 /// </summary>
-public sealed class SystemScheduler
+[Obsolete("Use PurlieuEcs.Core.SystemScheduler instead")]
+public sealed class LegacySystemScheduler
 {
     private readonly List<SystemEntry> _systems;
     private readonly Dictionary<string, List<SystemEntry>> _phaseToSystems;
@@ -17,7 +19,7 @@ public sealed class SystemScheduler
     // Cache for system metadata to avoid repeated reflection
     private static readonly ConcurrentDictionary<Type, SystemMetadata> _metadataCache = new();
     
-    public SystemScheduler()
+    public LegacySystemScheduler()
     {
         _systems = new List<SystemEntry>();
         _phaseToSystems = new Dictionary<string, List<SystemEntry>>();
@@ -27,7 +29,7 @@ public sealed class SystemScheduler
     /// <summary>
     /// Registers a system for execution.
     /// </summary>
-    public void RegisterSystem(ISystem system)
+    public void RegisterSystem(ILegacySystem system)
     {
         var systemType = system.GetType();
         
@@ -92,12 +94,12 @@ public sealed class SystemScheduler
     
     private sealed class SystemEntry
     {
-        public ISystem System { get; }
+        public ILegacySystem System { get; }
         public string Phase { get; }
         public int Order { get; }
         public string Name { get; }
         
-        public SystemEntry(ISystem system, string phase, int order, string name)
+        public SystemEntry(ILegacySystem system, string phase, int order, string name)
         {
             System = system;
             Phase = phase;

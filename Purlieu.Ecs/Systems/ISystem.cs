@@ -3,10 +3,11 @@ using PurlieuEcs.Core;
 namespace PurlieuEcs.Systems;
 
 /// <summary>
-/// Base interface for all ECS systems.
+/// Legacy base interface for all ECS systems - deprecated, use PurlieuEcs.Core.ISystem instead.
 /// Systems must be stateless and deterministic.
 /// </summary>
-public interface ISystem
+[Obsolete("Use PurlieuEcs.Core.ISystem instead")]
+public interface ILegacySystem
 {
     /// <summary>
     /// Updates the system for one frame.

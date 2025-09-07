@@ -1,5 +1,4 @@
 using PurlieuEcs.Core;
-using PurlieuEcs.Systems;
 using Purlieu.Logic.Components;
 using Purlieu.Logic.Events;
 using System.Numerics;
@@ -12,10 +11,23 @@ namespace Purlieu.Logic.Systems;
 /// SIMD-optimized movement system that processes position updates.
 /// Demonstrates 4-8x performance improvements over scalar operations.
 /// </summary>
-[GamePhase(GamePhases.Update)]
+[SystemExecution(SystemPhase.Update)]
 public class MovementSystem : ISystem
 {
-    public void Update(World world, float deltaTime)
+    public void Execute(World world, float deltaTime)
+    {
+        Update(world, deltaTime);
+    }
+    
+    public SystemDependencies GetDependencies()
+    {
+        return SystemDependencies.ReadWrite(
+            readComponents: Array.Empty<Type>(),
+            writeComponents: new[] { typeof(Position), typeof(Velocity), typeof(Force) }
+        );
+    }
+    
+    private void Update(World world, float deltaTime)
     {
         ProcessVelocityUpdates(world, deltaTime);
         ProcessForceAccumulation(world, deltaTime);
