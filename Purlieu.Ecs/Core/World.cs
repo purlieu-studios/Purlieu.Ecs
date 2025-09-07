@@ -4,6 +4,7 @@ using PurlieuEcs.Logging;
 using PurlieuEcs.Validation;
 using PurlieuEcs.Monitoring;
 using System.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace PurlieuEcs.Core;
 
@@ -18,8 +19,8 @@ public sealed class World : IDisposable
     private const int ChunkCapacityMask = ChunkCapacity - 1; // 511 for fast modulo
     private EntityRecord[] _entities;
     private int _entityCapacity;
-    private readonly Queue<uint> _freeIds;
-    private uint _nextEntityId;
+    private readonly ConcurrentQueue<uint> _freeIds;
+    private long _nextEntityId; // Changed to long for Interlocked operations
     
     internal readonly Dictionary<ArchetypeSignature, Archetype> _signatureToArchetype;
     private readonly Dictionary<ulong, Archetype> _idToArchetype;
@@ -32,6 +33,10 @@ public sealed class World : IDisposable
     private readonly IEcsLogger _logger;
     private readonly IEcsValidator _validator;
     private readonly IEcsHealthMonitor _healthMonitor;
+    
+    // Thread safety infrastructure
+    internal readonly ReaderWriterLockSlim _queryMutationLock = new(LockRecursionPolicy.NoRecursion);
+    private readonly ConcurrentDictionary<ulong, object> _archetypeLocks = new();
     
     /// <summary>
     /// Gets the logger instance for this world
@@ -52,7 +57,7 @@ public sealed class World : IDisposable
     {
         _entityCapacity = initialCapacity;
         _entities = new EntityRecord[_entityCapacity];
-        _freeIds = new Queue<uint>();
+        _freeIds = new ConcurrentQueue<uint>();
         _nextEntityId = 1; // 0 is reserved for invalid
         
         // Pre-allocate dictionaries to avoid growth allocations
@@ -118,52 +123,61 @@ public sealed class World : IDisposable
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            uint id;
-            uint version = 1;
-            
-            if (_freeIds.Count > 0)
+            // Use write lock for entity mutation
+            _queryMutationLock.EnterWriteLock();
+            try
             {
-                id = _freeIds.Dequeue();
-                var oldRecord = _entities[(int)id - 1];
-                version = oldRecord.Version + 1;
+                uint id;
+                uint version = 1;
                 
-                // Add reused entity to empty archetype
-                var emptyArchetype = _idToArchetype[0];
-                var row = emptyArchetype.AddEntity(new Entity(id, version));
-                _entities[(int)id - 1] = new EntityRecord(version, 0, row);
-            }
-            else
-            {
-                id = _nextEntityId++;
-                
-                // Validate we haven't exceeded maximum entity limit
-                if (id == uint.MaxValue)
+                if (_freeIds.TryDequeue(out id))
                 {
-                    throw new InvalidOperationException("Maximum entity limit reached (uint.MaxValue)");
+                    var oldRecord = _entities[(int)id - 1];
+                    version = oldRecord.Version + 1;
+                    
+                    // Add reused entity to empty archetype
+                    var emptyArchetype = _idToArchetype[0];
+                    var row = emptyArchetype.AddEntity(new Entity(id, version));
+                    _entities[(int)id - 1] = new EntityRecord(version, 0, row);
+                }
+                else
+                {
+                    var nextId = Interlocked.Increment(ref _nextEntityId);
+                    id = (uint)nextId;
+                    
+                    // Validate we haven't exceeded maximum entity limit
+                    if (nextId > uint.MaxValue)
+                    {
+                        throw new InvalidOperationException("Maximum entity limit reached (uint.MaxValue)");
+                    }
+                    
+                    // Grow array if needed
+                    if (id > _entityCapacity)
+                    {
+                        _entityCapacity *= 2;
+                        Array.Resize(ref _entities, _entityCapacity);
+                    }
+                    
+                    // Add entity to empty archetype
+                    var emptyArchetype = _idToArchetype[0];
+                    var row = emptyArchetype.AddEntity(new Entity(id, version));
+                    _entities[(int)id - 1] = new EntityRecord(version, 0, row);
                 }
                 
-                // Grow array if needed
-                if (id > _entityCapacity)
+                var entity = new Entity(id, version);
+                
+                // Log entity creation
+                if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    _entityCapacity *= 2;
-                    Array.Resize(ref _entities, _entityCapacity);
+                    _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityCreate, entity.Id);
                 }
                 
-                // Add entity to empty archetype
-                var emptyArchetype = _idToArchetype[0];
-                var row = emptyArchetype.AddEntity(new Entity(id, version));
-                _entities[(int)id - 1] = new EntityRecord(version, 0, row);
+                return entity;
             }
-            
-            var entity = new Entity(id, version);
-            
-            // Log entity creation
-            if (_logger.IsEnabled(LogLevel.Debug))
+            finally
             {
-                _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityCreate, entity.Id);
+                _queryMutationLock.ExitWriteLock();
             }
-            
-            return entity;
         }
         catch (Exception ex)
         {
@@ -184,36 +198,50 @@ public sealed class World : IDisposable
     {
         try
         {
-            if (!IsAlive(entity))
-                return;
-            
-            // Log entity destruction
-            if (_logger.IsEnabled(LogLevel.Debug))
+            // Use write lock for entity mutation
+            _queryMutationLock.EnterWriteLock();
+            try
             {
-                _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityDestroy, entity.Id);
-            }
-            
-            ref var record = ref GetRecord(entity);
-            
-            // Clear from archetype if it has one
-            if (record.ArchetypeId != 0 && _idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
-            {
-                var swappedEntity = archetype.RemoveEntity(entity, record.Row);
+                if (!IsAlive(entity))
+                    return;
                 
-                // If an entity was swapped to fill the removed entity's slot, update its record
-                if (swappedEntity != Entity.Invalid && swappedEntity != entity)
+                // Log entity destruction
+                if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    ref var swappedRecord = ref GetRecord(swappedEntity);
-                    swappedRecord.Row = record.Row; // The swapped entity now has the destroyed entity's row index
+                    _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.EntityDestroy, entity.Id);
                 }
+                
+                ref var record = ref GetRecord(entity);
+                
+                // Clear from archetype if it has one
+                if (record.ArchetypeId != 0 && _idToArchetype.TryGetValue(record.ArchetypeId, out var archetype))
+                {
+                    // Use archetype lock for thread-safe entity removal
+                    var archetypeLock = GetArchetypeLock(archetype.Id);
+                    lock (archetypeLock)
+                    {
+                        var swappedEntity = archetype.RemoveEntity(entity, record.Row);
+                        
+                        // If an entity was swapped to fill the removed entity's slot, update its record
+                        if (swappedEntity != Entity.Invalid && swappedEntity != entity)
+                        {
+                            ref var swappedRecord = ref GetRecord(swappedEntity);
+                            swappedRecord.Row = record.Row; // The swapped entity now has the destroyed entity's row index
+                        }
+                    }
+                }
+                
+                // Mark as destroyed by incrementing version
+                record.Version++;
+                record.ArchetypeId = 0;
+                record.Row = -1;
+                
+                _freeIds.Enqueue(entity.Id);
             }
-            
-            // Mark as destroyed by incrementing version
-            record.Version++;
-            record.ArchetypeId = 0;
-            record.Row = -1;
-            
-            _freeIds.Enqueue(entity.Id);
+            finally
+            {
+                _queryMutationLock.ExitWriteLock();
+            }
         }
         catch (Exception ex)
         {
@@ -344,32 +372,36 @@ public sealed class World : IDisposable
         var stopwatch = Stopwatch.StartNew();
         try
         {
-            if (!IsAlive(entity))
-                throw new EntityNotFoundException(entity.Id, "Cannot add component to non-existent entity");
-            
-            // Validate component type and entity operation
-            var componentValidation = _validator.ValidateComponentType<T>();
-            if (!componentValidation.IsValid && componentValidation.Severity == ValidationSeverity.Error)
+            // Use write lock for component mutation
+            _queryMutationLock.EnterWriteLock();
+            try
             {
-                throw new ComponentException(entity.Id, typeof(T), componentValidation.Message, 
-                    new ValidationException(componentValidation.Message));
-            }
-            
-            var operationValidation = _validator.ValidateEntityOperation(EntityOperation.AddComponent, entity.Id, typeof(T));
-            if (!operationValidation.IsValid && operationValidation.Severity == ValidationSeverity.Error)
-            {
-                throw new ComponentException(entity.Id, typeof(T), operationValidation.Message,
-                    new ValidationException(operationValidation.Message));
-            }
-            
-            // Log component addition
-            if (_logger.IsEnabled(LogLevel.Debug))
-            {
-                _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentAdd, entity.Id, typeof(T).Name);
-            }
+                if (!IsAlive(entity))
+                    throw new EntityNotFoundException(entity.Id, "Cannot add component to non-existent entity");
                 
-            ref var record = ref GetRecord(entity);
-            var currentArchetype = _idToArchetype[record.ArchetypeId];
+                // Validate component type and entity operation
+                var componentValidation = _validator.ValidateComponentType<T>();
+                if (!componentValidation.IsValid && componentValidation.Severity == ValidationSeverity.Error)
+                {
+                    throw new ComponentException(entity.Id, typeof(T), componentValidation.Message, 
+                        new ValidationException(componentValidation.Message));
+                }
+                
+                var operationValidation = _validator.ValidateEntityOperation(EntityOperation.AddComponent, entity.Id, typeof(T));
+                if (!operationValidation.IsValid && operationValidation.Severity == ValidationSeverity.Error)
+                {
+                    throw new ComponentException(entity.Id, typeof(T), operationValidation.Message,
+                        new ValidationException(operationValidation.Message));
+                }
+                
+                // Log component addition
+                if (_logger.IsEnabled(LogLevel.Debug))
+                {
+                    _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentAdd, entity.Id, typeof(T).Name);
+                }
+                    
+                ref var record = ref GetRecord(entity);
+                var currentArchetype = _idToArchetype[record.ArchetypeId];
             
             // Check if entity already has the component
             if (currentArchetype.Signature.Has<T>())
@@ -390,6 +422,11 @@ public sealed class World : IDisposable
             
             // Move entity to new archetype
             MoveEntityToArchetype(entity, currentArchetype, newArchetype, component);
+            }
+            finally
+            {
+                _queryMutationLock.ExitWriteLock();
+            }
         }
         catch (Exception ex) when (!(ex is ComponentException || ex is EntityNotFoundException))
         {
@@ -410,41 +447,50 @@ public sealed class World : IDisposable
     {
         try
         {
-            if (!IsAlive(entity))
-                throw new EntityNotFoundException(entity.Id, "Cannot remove component from non-existent entity");
-            
-            // Log component removal
-            if (_logger.IsEnabled(LogLevel.Debug))
+            // Use write lock for component mutation
+            _queryMutationLock.EnterWriteLock();
+            try
             {
-                _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentRemove, entity.Id, typeof(T).Name);
-            }
+                if (!IsAlive(entity))
+                    throw new EntityNotFoundException(entity.Id, "Cannot remove component from non-existent entity");
                 
-            ref var record = ref GetRecord(entity);
-            var currentArchetype = _idToArchetype[record.ArchetypeId];
-            
-            if (!currentArchetype.Signature.Has<T>())
-                return; // Entity doesn't have this component
-                
-            var newSignature = currentArchetype.Signature.Remove<T>();
-            
-            // Create new component types array without LINQ allocations
-            var oldTypes = currentArchetype.ComponentTypes;
-            var targetType = typeof(T);
-            var newComponentTypes = new Type[oldTypes.Count - 1];
-            int writeIndex = 0;
-            
-            for (int i = 0; i < oldTypes.Count; i++)
-            {
-                if (oldTypes[i] != targetType)
+                // Log component removal
+                if (_logger.IsEnabled(LogLevel.Debug))
                 {
-                    newComponentTypes[writeIndex++] = oldTypes[i];
+                    _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.ComponentRemove, entity.Id, typeof(T).Name);
                 }
-            }
-            
-            var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
+                    
+                ref var record = ref GetRecord(entity);
+                var currentArchetype = _idToArchetype[record.ArchetypeId];
+                
+                if (!currentArchetype.Signature.Has<T>())
+                    return; // Entity doesn't have this component
+                    
+                var newSignature = currentArchetype.Signature.Remove<T>();
+                
+                // Create new component types array without LINQ allocations
+                var oldTypes = currentArchetype.ComponentTypes;
+                var targetType = typeof(T);
+                var newComponentTypes = new Type[oldTypes.Count - 1];
+                int writeIndex = 0;
+                
+                for (int i = 0; i < oldTypes.Count; i++)
+                {
+                    if (oldTypes[i] != targetType)
+                    {
+                        newComponentTypes[writeIndex++] = oldTypes[i];
+                    }
+                }
+                
+                var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
             
             // Move entity to new archetype
             MoveEntityToArchetype<T>(entity, currentArchetype, newArchetype);
+            }
+            finally
+            {
+                _queryMutationLock.ExitWriteLock();
+            }
         }
         catch (Exception ex) when (!(ex is ComponentException || ex is EntityNotFoundException))
         {
@@ -520,7 +566,16 @@ public sealed class World : IDisposable
     }
     
     /// <summary>
+    /// Gets or creates a lock object for the specified archetype ID.
+    /// </summary>
+    private object GetArchetypeLock(ulong archetypeId)
+    {
+        return _archetypeLocks.GetOrAdd(archetypeId, _ => new object());
+    }
+    
+    /// <summary>
     /// Moves an entity between archetypes when adding a component.
+    /// Uses ordered locking to prevent deadlocks during concurrent archetype transitions.
     /// </summary>
     private void MoveEntityToArchetype<T>(Entity entity, Archetype fromArchetype, Archetype toArchetype, T newComponent = default) where T : unmanaged
     {
@@ -545,72 +600,103 @@ public sealed class World : IDisposable
                 details: $"From:{fromArchetype.Id} To:{toArchetype.Id}");
         }
         
-        ref var record = ref GetRecord(entity);
-        var oldRow = record.Row;
-        
-        // Add entity to new archetype first
-        var newRow = toArchetype.AddEntity(entity);
-        
-        // Copy component data from old to new archetype
-        if (fromArchetype.Id != 0 && oldRow >= 0)
+        // Handle self-transitions (same archetype) with single lock
+        if (fromArchetype.Id == toArchetype.Id)
         {
-            int oldChunkIndex = oldRow >> ChunkCapacityBits;
-            int oldLocalRow = oldRow & ChunkCapacityMask;
-            int newChunkIndex = newRow >> ChunkCapacityBits;
-            int newLocalRow = newRow & ChunkCapacityMask;
-            
-            var oldChunks = fromArchetype.GetChunks();
-            var newChunks = toArchetype.GetChunks();
-            
-            if (oldChunkIndex < oldChunks.Count && newChunkIndex < newChunks.Count)
+            var singleLock = GetArchetypeLock(fromArchetype.Id);
+            lock (singleLock)
             {
-                var oldChunk = oldChunks[oldChunkIndex];
-                var newChunk = newChunks[newChunkIndex];
-                
-                // Use delta-based migration for efficient component copying
-                var delta = ComponentDeltaCache.GetDelta(fromArchetype, toArchetype);
-                
-                // Copy shared components using pre-computed indices
-                foreach (var componentType in delta.SharedComponentTypes)
+                PerformArchetypeTransition();
+            }
+        }
+        else
+        {
+            // Acquire archetype locks in consistent order to prevent deadlocks
+            var fromLock = GetArchetypeLock(fromArchetype.Id);
+            var toLock = GetArchetypeLock(toArchetype.Id);
+            
+            // Order locks by archetype ID to ensure consistent lock ordering
+            var (firstLock, secondLock) = fromArchetype.Id < toArchetype.Id ? (fromLock, toLock) : (toLock, fromLock);
+            
+            // Use ordered locking to prevent deadlocks during concurrent archetype transitions
+            lock (firstLock)
+            {
+                lock (secondLock)
                 {
-                    var (sourceIndex, targetIndex) = delta.SharedComponents[componentType];
-                    ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
+                    PerformArchetypeTransition();
                 }
             }
         }
         
-        // Update entity record
-        record.ArchetypeId = toArchetype.Id;
-        record.Row = newRow;
-        
-        // Set the new component if provided
-        if (!EqualityComparer<T>.Default.Equals(newComponent, default(T)))
+        void PerformArchetypeTransition()
         {
-            int chunkIndex = newRow >> ChunkCapacityBits;
-            int localRow = newRow & ChunkCapacityMask;
-            
-            var chunks = toArchetype.GetChunks();
-            if (chunkIndex < chunks.Count)
-            {
-                var chunk = chunks[chunkIndex];
-                if (chunk.HasComponent<T>())
+                ref var record = ref GetRecord(entity);
+                var oldRow = record.Row;
+                
+                // Add entity to new archetype first
+                var newRow = toArchetype.AddEntity(entity);
+                
+                // Copy component data from old to new archetype
+                if (fromArchetype.Id != 0 && oldRow >= 0)
                 {
-                    chunk.GetComponent<T>(localRow) = newComponent;
+                    int oldChunkIndex = oldRow >> ChunkCapacityBits;
+                    int oldLocalRow = oldRow & ChunkCapacityMask;
+                    int newChunkIndex = newRow >> ChunkCapacityBits;
+                    int newLocalRow = newRow & ChunkCapacityMask;
+                    
+                    var oldChunks = fromArchetype.GetChunks();
+                    var newChunks = toArchetype.GetChunks();
+                    
+                    if (oldChunkIndex < oldChunks.Count && newChunkIndex < newChunks.Count)
+                    {
+                        var oldChunk = oldChunks[oldChunkIndex];
+                        var newChunk = newChunks[newChunkIndex];
+                        
+                        // Use delta-based migration for efficient component copying
+                        var delta = ComponentDeltaCache.GetDelta(fromArchetype, toArchetype);
+                        
+                        // Copy shared components using pre-computed indices
+                        foreach (var componentType in delta.SharedComponentTypes)
+                        {
+                            var (sourceIndex, targetIndex) = delta.SharedComponents[componentType];
+                            ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
+                        }
+                    }
                 }
-            }
-        }
-        
-        // Remove from old archetype and handle entity swapping
-        if (fromArchetype.Id != 0 && oldRow >= 0)
-        {
-            var swappedEntity = fromArchetype.RemoveEntity(entity, oldRow);
-            
-            // If an entity was swapped to fill the removed entity's slot, update its record
-            if (swappedEntity != Entity.Invalid && swappedEntity != entity)
-            {
-                ref var swappedRecord = ref GetRecord(swappedEntity);
-                swappedRecord.Row = oldRow; // The swapped entity now has the old row index
-            }
+                
+                // Update entity record
+                record.ArchetypeId = toArchetype.Id;
+                record.Row = newRow;
+                
+                // Set the new component if provided
+                if (!EqualityComparer<T>.Default.Equals(newComponent, default(T)))
+                {
+                    int chunkIndex = newRow >> ChunkCapacityBits;
+                    int localRow = newRow & ChunkCapacityMask;
+                    
+                    var chunks = toArchetype.GetChunks();
+                    if (chunkIndex < chunks.Count)
+                    {
+                        var chunk = chunks[chunkIndex];
+                        if (chunk.HasComponent<T>())
+                        {
+                            chunk.GetComponent<T>(localRow) = newComponent;
+                        }
+                    }
+                }
+                
+                // Remove from old archetype and handle entity swapping
+                if (fromArchetype.Id != 0 && oldRow >= 0)
+                {
+                    var swappedEntity = fromArchetype.RemoveEntity(entity, oldRow);
+                    
+                    // If an entity was swapped to fill the removed entity's slot, update its record
+                    if (swappedEntity != Entity.Invalid && swappedEntity != entity)
+                    {
+                        ref var swappedRecord = ref GetRecord(swappedEntity);
+                        swappedRecord.Row = oldRow; // The swapped entity now has the old row index
+                    }
+                }
         }
         
         stopwatch.Stop();
@@ -1061,6 +1147,10 @@ public sealed class World : IDisposable
         }
         
         _eventChannels.Clear();
+        
+        // Dispose thread safety infrastructure
+        _queryMutationLock?.Dispose();
+        _healthMonitor?.Dispose();
     }
     
     /// <summary>

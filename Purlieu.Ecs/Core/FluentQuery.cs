@@ -46,15 +46,24 @@ public struct FluentQuery
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void ForEach<T>(QueryAction<T> action) where T : unmanaged
     {
-        foreach (var chunk in _query.ChunksStack())
+        // Use read lock for query operations to coordinate with mutations
+        _world._queryMutationLock.EnterReadLock();
+        try
         {
-            var components = chunk.GetSpan<T>();
-            var entities = chunk.GetEntities();
-            
-            for (int i = 0; i < components.Length; i++)
+            foreach (var chunk in _query.ChunksStack())
             {
-                action(entities[i], ref components[i]);
+                var components = chunk.GetSpan<T>();
+                var entities = chunk.GetEntities();
+                
+                for (int i = 0; i < components.Length; i++)
+                {
+                    action(entities[i], ref components[i]);
+                }
             }
+        }
+        finally
+        {
+            _world._queryMutationLock.ExitReadLock();
         }
     }
     
@@ -70,16 +79,25 @@ public struct FluentQuery
         where T1 : unmanaged 
         where T2 : unmanaged
     {
-        foreach (var chunk in _query.ChunksStack())
+        // Use read lock for query operations to coordinate with mutations
+        _world._queryMutationLock.EnterReadLock();
+        try
         {
-            var components1 = chunk.GetSpan<T1>();
-            var components2 = chunk.GetSpan<T2>();
-            var entities = chunk.GetEntities();
-            
-            for (int i = 0; i < components1.Length; i++)
+            foreach (var chunk in _query.ChunksStack())
             {
-                action(entities[i], ref components1[i], ref components2[i]);
+                var components1 = chunk.GetSpan<T1>();
+                var components2 = chunk.GetSpan<T2>();
+                var entities = chunk.GetEntities();
+                
+                for (int i = 0; i < components1.Length; i++)
+                {
+                    action(entities[i], ref components1[i], ref components2[i]);
+                }
             }
+        }
+        finally
+        {
+            _world._queryMutationLock.ExitReadLock();
         }
     }
     
@@ -92,17 +110,26 @@ public struct FluentQuery
         where T2 : unmanaged 
         where T3 : unmanaged
     {
-        foreach (var chunk in _query.ChunksStack())
+        // Use read lock for query operations to coordinate with mutations
+        _world._queryMutationLock.EnterReadLock();
+        try
         {
-            var components1 = chunk.GetSpan<T1>();
-            var components2 = chunk.GetSpan<T2>();
-            var components3 = chunk.GetSpan<T3>();
-            var entities = chunk.GetEntities();
-            
-            for (int i = 0; i < components1.Length; i++)
+            foreach (var chunk in _query.ChunksStack())
             {
-                action(entities[i], ref components1[i], ref components2[i], ref components3[i]);
+                var components1 = chunk.GetSpan<T1>();
+                var components2 = chunk.GetSpan<T2>();
+                var components3 = chunk.GetSpan<T3>();
+                var entities = chunk.GetEntities();
+                
+                for (int i = 0; i < components1.Length; i++)
+                {
+                    action(entities[i], ref components1[i], ref components2[i], ref components3[i]);
+                }
             }
+        }
+        finally
+        {
+            _world._queryMutationLock.ExitReadLock();
         }
     }
     
@@ -113,12 +140,21 @@ public struct FluentQuery
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public int Count()
     {
-        int count = 0;
-        foreach (var chunk in _query.ChunksStack())
+        // Use read lock for query operations to coordinate with mutations
+        _world._queryMutationLock.EnterReadLock();
+        try
         {
-            count += chunk.Count;
+            int count = 0;
+            foreach (var chunk in _query.ChunksStack())
+            {
+                count += chunk.Count;
+            }
+            return count;
         }
-        return count;
+        finally
+        {
+            _world._queryMutationLock.ExitReadLock();
+        }
     }
     
     /// <summary>
@@ -128,11 +164,20 @@ public struct FluentQuery
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public bool Any()
     {
-        foreach (var chunk in _query.ChunksStack())
+        // Use read lock for query operations to coordinate with mutations
+        _world._queryMutationLock.EnterReadLock();
+        try
         {
-            if (chunk.Count > 0) return true;
+            foreach (var chunk in _query.ChunksStack())
+            {
+                if (chunk.Count > 0) return true;
+            }
+            return false;
         }
-        return false;
+        finally
+        {
+            _world._queryMutationLock.ExitReadLock();
+        }
     }
     
     /// <summary>
@@ -142,15 +187,24 @@ public struct FluentQuery
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public Entity First()
     {
-        foreach (var chunk in _query.ChunksStack())
+        // Use read lock for query operations to coordinate with mutations
+        _world._queryMutationLock.EnterReadLock();
+        try
         {
-            if (chunk.Count > 0)
+            foreach (var chunk in _query.ChunksStack())
             {
-                var entities = chunk.GetEntities();
-                return entities[0];
+                if (chunk.Count > 0)
+                {
+                    var entities = chunk.GetEntities();
+                    return entities[0];
+                }
             }
+            return default;
         }
-        return default;
+        finally
+        {
+            _world._queryMutationLock.ExitReadLock();
+        }
     }
     
     /// <summary>
@@ -159,18 +213,27 @@ public struct FluentQuery
     /// </summary>
     public Entity[] ToArray()
     {
-        var entities = new List<Entity>();
-        
-        foreach (var chunk in _query.ChunksStack())
+        // Use read lock for query operations to coordinate with mutations
+        _world._queryMutationLock.EnterReadLock();
+        try
         {
-            var chunkEntities = chunk.GetEntities();
-            for (int i = 0; i < chunkEntities.Length; i++)
+            var entities = new List<Entity>();
+            
+            foreach (var chunk in _query.ChunksStack())
             {
-                entities.Add(chunkEntities[i]);
+                var chunkEntities = chunk.GetEntities();
+                for (int i = 0; i < chunkEntities.Length; i++)
+                {
+                    entities.Add(chunkEntities[i]);
+                }
             }
+            
+            return entities.ToArray();
         }
-        
-        return entities.ToArray();
+        finally
+        {
+            _world._queryMutationLock.ExitReadLock();
+        }
     }
     
     /// <summary>

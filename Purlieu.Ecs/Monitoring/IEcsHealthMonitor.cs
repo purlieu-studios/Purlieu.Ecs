@@ -7,7 +7,7 @@ namespace PurlieuEcs.Monitoring;
 /// High-performance health monitoring interface for ECS operations
 /// Designed for zero-allocation monitoring in production with real-time metrics
 /// </summary>
-public interface IEcsHealthMonitor
+public interface IEcsHealthMonitor : IDisposable
 {
     /// <summary>
     /// Gets current health status of the ECS world
@@ -405,4 +405,7 @@ public sealed class NullEcsHealthMonitor : IEcsHealthMonitor
     
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public void EndFrame() { }
+    
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Dispose() { }
 }

@@ -321,7 +321,7 @@ public class MONITORING_HealthCheckTests
     public void HealthMonitor_ThreadSafe()
     {
         // Arrange
-        const int threadCount = Environment.ProcessorCount;
+        var threadCount = Environment.ProcessorCount;
         const int operationsPerThread = 1000;
         
         var tasks = new Task[threadCount];
