@@ -1,0 +1,43 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\src\\Purlieu.Ecs\\Core/**)",
+      "Bash(dotnet build)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs/**)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\src\\Purlieu.Ecs\\Core/**)",
+      "Bash(git add:*)",
+      "Bash(git reset:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\.claude/**)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\.claude/**)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\.claude/**)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\.claude/**)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\src\\Purlieu.Ecs\\Core/**)",
+      "Bash(git branch:*)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\Purlieu.Ecs.Tests/**)",
+      "Bash(dotnet test)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\src\\Purlieu.Ecs\\Core/**)",
+      "Bash(dotnet build:*)",
+      "Bash(dotnet test:*)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\src\\Purlieu.Ecs\\Core/**)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs/**)",
+      "Bash(dotnet new:*)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\Purlieu.Ecs.Benchmarks/**)",
+      "Read(/F:\\BestEcs\\Purlieu.Ecs\\Purlieu.Ecs.Benchmarks/**)",
+      "Bash(dotnet --list-sdks)",
+      "Bash(dotnet run:*)",
+      "Bash(verbosity=normal)",
+      "Bash(del \"F:\\BestEcs\\Purlieu.Ecs\\Purlieu.Ecs.Tests\\Core\\ALLOC_BenchmarkAllocationTests.cs\")",
+      "Bash(dir)",
+      "Bash(mkdir:*)",
+      "Bash(dir \"C:\\Purlieu.Ecs\\todos\")",
+      "Bash(git rm:*)",
+      "Bash(verbosity=detailed)",
+      "Read(//c//**)",
+      "Bash(dir:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

@@ -624,6 +624,69 @@ public sealed class World
     }
     
     /// <summary>
+    /// Gets the total number of active entities in the world.
+    /// </summary>
+    public int EntityCount 
+    { 
+        get 
+        {
+            int count = 0;
+            foreach (var archetype in _allArchetypes)
+            {
+                count += archetype.EntityCount;
+            }
+            return count;
+        } 
+    }
+    
+    /// <summary>
+    /// Gets the total number of archetypes in the world.
+    /// </summary>
+    public int ArchetypeCount => _allArchetypes.Count;
+    
+    /// <summary>
+    /// Gets all archetypes ordered by their ID for deterministic serialization.
+    /// </summary>
+    public IReadOnlyList<Archetype> GetArchetypesOrderedById()
+    {
+        var orderedArchetypes = new List<Archetype>(_allArchetypes);
+        orderedArchetypes.Sort((a, b) => a.Id.CompareTo(b.Id));
+        return orderedArchetypes;
+    }
+    
+    /// <summary>
+    /// Gets all entities in the world in deterministic order.
+    /// Entities are returned ordered by archetype ID, then by entity ID.
+    /// </summary>
+    public IEnumerable<Entity> GetAllEntitiesOrdered()
+    {
+        var orderedArchetypes = GetArchetypesOrderedById();
+        foreach (var archetype in orderedArchetypes)
+        {
+            var chunks = archetype.GetChunks();
+            for (int chunkIndex = 0; chunkIndex < chunks.Count; chunkIndex++)
+            {
+                var chunk = chunks[chunkIndex];
+                var entities = new List<Entity>();
+                
+                // Collect entities from this chunk
+                for (int row = 0; row < chunk.Count; row++)
+                {
+                    entities.Add(chunk.GetEntity(row));
+                }
+                
+                // Sort by entity ID for deterministic order
+                entities.Sort((a, b) => a.Id.CompareTo(b.Id));
+                
+                foreach (var entity in entities)
+                {
+                    yield return entity;
+                }
+            }
+        }
+    }
+    
+    /// <summary>
     /// Tracks entity metadata.
     /// </summary>
     internal struct EntityRecord

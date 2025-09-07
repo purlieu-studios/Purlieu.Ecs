@@ -7,7 +7,7 @@ namespace PurlieuEcs.Core;
 /// <summary>
 /// Represents a unique component combination storing entities in chunks.
 /// </summary>
-internal sealed class Archetype
+public sealed class Archetype
 {
     private readonly ulong _id;
     private readonly ArchetypeSignature _signature;
@@ -20,6 +20,24 @@ internal sealed class Archetype
     public ulong Id => _id;
     public ArchetypeSignature Signature => _signature;
     public IReadOnlyList<Type> ComponentTypes => _componentTypes;
+    
+    /// <summary>
+    /// Gets the total number of entities in this archetype across all chunks.
+    /// </summary>
+    public int EntityCount 
+    { 
+        get 
+        { 
+            // Empty archetype doesn't use chunks
+            if (_componentTypes.Length == 0)
+                return 0;
+                
+            int count = 0;
+            foreach (var chunk in _chunks)
+                count += chunk.Count;
+            return count;
+        } 
+    }
     
     public Archetype(ulong id, ArchetypeSignature signature, Type[] componentTypes, int chunkCapacity = 512)
     {

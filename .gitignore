@@ -331,4 +331,4 @@ FodyWeavers.xsd
 # Project specific
 CLAUDE.md
 ecs-mind.md
-.claude/
+.claude/FRAMEWORK_DOCUMENTATION.md

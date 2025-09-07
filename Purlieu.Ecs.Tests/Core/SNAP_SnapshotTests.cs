@@ -3,6 +3,7 @@ using PurlieuEcs.Components;
 using PurlieuEcs.Core;
 using PurlieuEcs.Snapshot;
 using Purlieu.Logic.Components;
+using Purlieu.Logic;
 
 namespace PurlieuEcs.Tests.Core;
 
@@ -10,13 +11,12 @@ namespace PurlieuEcs.Tests.Core;
 public class SNAP_SnapshotTests
 {
     private World _world = null!;
-    private WorldSnapshot _snapshot = null!;
     
     [SetUp]
     public void Setup()
     {
         _world = new World();
-        _snapshot = new WorldSnapshot();
+        LogicBootstrap.RegisterComponents(_world);
     }
     
     [Test]
@@ -29,17 +29,18 @@ public class SNAP_SnapshotTests
         _world.AddComponent(e2, new Position(30, 40, 0));
         _world.AddComponent(e2, new MoveIntent(1, 2, 0));
         
-        var snapshotData = _snapshot.Capture(_world);
+        var snapshotResult = WorldSnapshot.Save(_world);
         
-        Assert.That(snapshotData, Is.Not.Null);
-        Assert.That(snapshotData.Length, Is.GreaterThan(0));
+        Assert.That(snapshotResult.Success, Is.True, $"Snapshot should succeed: {snapshotResult.Error}");
+        Assert.That(snapshotResult.Value, Is.Not.Null);
+        Assert.That(snapshotResult.Value.Length, Is.GreaterThan(0));
         
         // TODO: Full implementation would restore to a new world and verify
         // For now, just verify the snapshot was created
     }
     
     [Test]
-    public void Snapshot_WithCompression_ReducesSize()
+    public void Snapshot_WithManyEntities_CreatesValidSnapshot()
     {
         const int entityCount = 100;
         
@@ -49,21 +50,31 @@ public class SNAP_SnapshotTests
             _world.AddComponent(entity, new Position(i, i, 0));
         }
         
-        var snapshotData = _snapshot.Capture(_world);
+        var snapshotResult = WorldSnapshot.Save(_world);
         
-        Assert.That(snapshotData, Is.Not.Null);
-        Assert.That(snapshotData.Length, Is.GreaterThan(0));
+        Assert.That(snapshotResult.Success, Is.True, $"Snapshot should succeed: {snapshotResult.Error}");
+        Assert.That(snapshotResult.Value, Is.Not.Null);
+        Assert.That(snapshotResult.Value.Length, Is.GreaterThan(0));
         
-        // Compression should make repetitive data smaller
-        // Full test would compare to uncompressed size
+        // Deterministic format should produce consistent results
+        var snapshotResult2 = WorldSnapshot.Save(_world);
+        Assert.That(snapshotResult2.Success, Is.True);
+        
+        // Note: Timestamps will differ, so we can't do exact byte comparison
+        // but the structure should be similar
+        Assert.That(snapshotResult2.Value.Length, Is.EqualTo(snapshotResult.Value.Length).Within(64)); // Allow for timestamp differences
     }
     
     [Test]
     public void Snapshot_EmptyWorld_CreatesValidSnapshot()
     {
-        var snapshotData = _snapshot.Capture(_world);
+        var snapshotResult = WorldSnapshot.Save(_world);
         
-        Assert.That(snapshotData, Is.Not.Null);
-        Assert.That(snapshotData.Length, Is.GreaterThan(0));
+        Assert.That(snapshotResult.Success, Is.True, $"Snapshot should succeed: {snapshotResult.Error}");
+        Assert.That(snapshotResult.Value, Is.Not.Null);
+        Assert.That(snapshotResult.Value.Length, Is.GreaterThan(0));
+        
+        // Empty world should still have header and minimal structure
+        Assert.That(snapshotResult.Value.Length, Is.GreaterThan(64)); // At least header size
     }
 }
