@@ -2,6 +2,8 @@ using System.Reflection;
 using PurlieuEcs.Events;
 using PurlieuEcs.Logging;
 using PurlieuEcs.Validation;
+using PurlieuEcs.Monitoring;
+using System.Diagnostics;
 
 namespace PurlieuEcs.Core;
 
@@ -29,6 +31,7 @@ public sealed class World : IDisposable
     private readonly MemoryManager _memoryManager;
     private readonly IEcsLogger _logger;
     private readonly IEcsValidator _validator;
+    private readonly IEcsHealthMonitor _healthMonitor;
     
     /// <summary>
     /// Gets the logger instance for this world
@@ -40,7 +43,12 @@ public sealed class World : IDisposable
     /// </summary>
     public IEcsValidator Validator => _validator;
     
-    public World(int initialCapacity = 1024, IEcsLogger? logger = null, IEcsValidator? validator = null)
+    /// <summary>
+    /// Gets the health monitor instance for this world
+    /// </summary>
+    public IEcsHealthMonitor HealthMonitor => _healthMonitor;
+    
+    public World(int initialCapacity = 1024, IEcsLogger? logger = null, IEcsValidator? validator = null, IEcsHealthMonitor? healthMonitor = null)
     {
         _entityCapacity = initialCapacity;
         _entities = new EntityRecord[_entityCapacity];
@@ -65,6 +73,14 @@ public sealed class World : IDisposable
             new EcsValidator();
 #else
             NullEcsValidator.Instance;
+#endif
+        
+        // Initialize health monitor (use null monitor in production unless specified)
+        _healthMonitor = healthMonitor ?? 
+#if DEBUG
+            new EcsHealthMonitor(_logger);
+#else
+            NullEcsHealthMonitor.Instance;
 #endif
         
         // Initialize memory manager for automatic cleanup
@@ -99,6 +115,7 @@ public sealed class World : IDisposable
     /// </summary>
     public Entity CreateEntity()
     {
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             uint id;
@@ -152,6 +169,11 @@ public sealed class World : IDisposable
         {
             _logger.LogError(ex, EcsOperation.EntityCreate, 0, CorrelationContext.Current);
             throw new EcsException("Failed to create entity", ex);
+        }
+        finally
+        {
+            stopwatch.Stop();
+            _healthMonitor.RecordEntityOperation(EcsOperation.EntityCreate, stopwatch.ElapsedTicks);
         }
     }
     
@@ -235,12 +257,14 @@ public sealed class World : IDisposable
         _allArchetypes.Add(archetype);
         _archetypeIndex.AddArchetype(archetype);
         
-        // Log archetype creation
+        // Log archetype creation and record memory event
         if (_logger.IsEnabled(LogLevel.Information))
         {
             var signatureString = string.Join(",", componentTypes.Select(t => t.Name));
             _logger.LogArchetypeOperation(LogLevel.Information, "Created", signatureString, 0);
         }
+        
+        _healthMonitor.RecordMemoryEvent(MemoryEventType.ArchetypeCreated, 1024); // Estimated archetype overhead
         
         // Use selective cache invalidation for new archetype
         _archetypeIndex.InvalidateCacheForNewArchetype(signature);
@@ -317,6 +341,7 @@ public sealed class World : IDisposable
     /// </summary>
     public void AddComponent<T>(Entity entity, T component) where T : unmanaged
     {
+        var stopwatch = Stopwatch.StartNew();
         try
         {
             if (!IsAlive(entity))
@@ -370,6 +395,11 @@ public sealed class World : IDisposable
         {
             _logger.LogError(ex, EcsOperation.ComponentAdd, entity.Id, CorrelationContext.Current);
             throw new ComponentException(entity.Id, typeof(T), "Failed to add component", ex);
+        }
+        finally
+        {
+            stopwatch.Stop();
+            _healthMonitor.RecordEntityOperation(EcsOperation.ComponentAdd, stopwatch.ElapsedTicks);
         }
     }
     
@@ -494,6 +524,8 @@ public sealed class World : IDisposable
     /// </summary>
     private void MoveEntityToArchetype<T>(Entity entity, Archetype fromArchetype, Archetype toArchetype, T newComponent = default) where T : unmanaged
     {
+        var stopwatch = Stopwatch.StartNew();
+        
         // Validate archetype transition
         var transitionValidation = _validator.ValidateArchetypeTransition(
             fromArchetype.ComponentTypes.ToArray(), 
@@ -580,6 +612,9 @@ public sealed class World : IDisposable
                 swappedRecord.Row = oldRow; // The swapped entity now has the old row index
             }
         }
+        
+        stopwatch.Stop();
+        _healthMonitor.RecordArchetypeTransition((int)fromArchetype.Id, (int)toArchetype.Id, stopwatch.ElapsedTicks);
     }
     
     /// <summary>

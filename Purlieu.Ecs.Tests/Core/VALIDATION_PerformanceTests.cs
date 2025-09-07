@@ -29,7 +29,6 @@ public class VALIDATION_PerformanceTests
     public void ValidationFramework_ZeroOverheadInRelease()
     {
         const int entityCount = 10000;
-        const int iterations = 100;
         
         // Warm up
         BenchmarkEntityOperations(_worldWithValidation, 100);
@@ -129,7 +128,7 @@ public class VALIDATION_PerformanceTests
     public void ValidationThreadSafety_HighConcurrency()
     {
         var validator = new EcsValidator();
-        const int threadCount = Environment.ProcessorCount;
+        int threadCount = Environment.ProcessorCount;
         const int operationsPerThread = 1000;
         
         var tasks = new Task[threadCount];
