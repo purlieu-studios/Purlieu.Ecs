@@ -13,7 +13,7 @@ namespace PurlieuEcs.Core;
 public sealed class SystemScheduler
 {
     private readonly Dictionary<SystemPhase, List<SystemExecutionGroup>> _phaseGroups;
-    private readonly Dictionary<Type, ISystem> _systemInstances;
+    private readonly Dictionary<object, ISystem> _systemInstances; // Use object key to support multiple instances
     private readonly IEcsLogger _logger;
     private readonly IEcsHealthMonitor _healthMonitor;
     
@@ -37,7 +37,7 @@ public sealed class SystemScheduler
     public SystemScheduler(IEcsLogger? logger = null, IEcsHealthMonitor? healthMonitor = null)
     {
         _phaseGroups = new Dictionary<SystemPhase, List<SystemExecutionGroup>>();
-        _systemInstances = new Dictionary<Type, ISystem>();
+        _systemInstances = new Dictionary<object, ISystem>();
         _logger = logger ?? NullEcsLogger.Instance;
         _healthMonitor = healthMonitor ?? NullEcsHealthMonitor.Instance;
         
@@ -55,15 +55,16 @@ public sealed class SystemScheduler
     {
         ArgumentNullException.ThrowIfNull(system);
         
-        var systemType = typeof(T);
-        if (_systemInstances.ContainsKey(systemType))
+        // Use the system instance itself as the key to support multiple instances of the same type
+        if (_systemInstances.ContainsKey(system))
         {
-            _logger.LogEntityOperation(LogLevel.Warning, EcsOperation.SystemExecute, 0, details: $"System {systemType.Name} already registered - replacing existing instance");
+            _logger.LogEntityOperation(LogLevel.Warning, EcsOperation.SystemExecute, 0, details: $"System instance already registered");
+            return;
         }
         
-        _systemInstances[systemType] = system;
+        _systemInstances[system] = system;
         
-        _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Registered system: {systemType.Name}");
+        _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Registered system: {system.GetType().Name}");
         
         // Rebuild execution groups when systems are added
         RebuildExecutionGroups();
@@ -80,10 +81,8 @@ public sealed class SystemScheduler
         var functionSystem = new FunctionSystem(function, dependencies);
         var systemName = name ?? $"Function_{_systemInstances.Count}";
         
-        // Create a unique type key for function systems
-        var functionKey = typeof(FunctionSystem).Assembly.GetType($"FunctionSystem_{systemName}") ?? typeof(object);
-        
-        _systemInstances[functionKey] = functionSystem;
+        // Use the function system instance as the key
+        _systemInstances[functionSystem] = functionSystem;
         
         _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Registered function system: {systemName}");
         
@@ -91,14 +90,21 @@ public sealed class SystemScheduler
     }
     
     /// <summary>
-    /// Unregister a system
+    /// Unregister all systems of a given type
     /// </summary>
     public void UnregisterSystem<T>() where T : class, ISystem
     {
         var systemType = typeof(T);
-        if (_systemInstances.Remove(systemType))
+        var systemsToRemove = _systemInstances.Where(kvp => kvp.Value.GetType() == systemType).Select(kvp => kvp.Key).ToList();
+        
+        foreach (var key in systemsToRemove)
         {
-            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Unregistered system: {systemType.Name}");
+            _systemInstances.Remove(key);
+        }
+        
+        if (systemsToRemove.Count > 0)
+        {
+            _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Unregistered {systemsToRemove.Count} instance(s) of system: {systemType.Name}");
             RebuildExecutionGroups();
         }
     }
@@ -236,8 +242,9 @@ public sealed class SystemScheduler
         }
         
         // Categorize systems by phase
-        foreach (var (systemType, system) in _systemInstances)
+        foreach (var (_, system) in _systemInstances)
         {
+            var systemType = system.GetType();
             var executionAttribute = systemType.GetCustomAttribute<SystemExecutionAttribute>();
             var phase = executionAttribute?.Phase ?? SystemPhase.Update;
             
@@ -267,13 +274,13 @@ public sealed class SystemScheduler
     private List<SystemExecutionGroup> BuildExecutionGroups(List<(ISystem System, Type SystemType, SystemExecutionAttribute? Attribute)> systems)
     {
         var groups = new List<SystemExecutionGroup>();
-        var processedSystems = new HashSet<Type>();
-        var systemDependencies = new Dictionary<Type, SystemDependencies>();
+        var processedSystems = new HashSet<ISystem>(); // Track by instance, not type
+        var systemDependencies = new Dictionary<ISystem, SystemDependencies>(); // Map instance to dependencies
         
         // Cache dependencies
         foreach (var (system, systemType, _) in systems)
         {
-            systemDependencies[systemType] = system.GetDependencies();
+            systemDependencies[system] = system.GetDependencies();
         }
         
         // Process systems in dependency order
@@ -284,19 +291,19 @@ public sealed class SystemScheduler
             
             foreach (var (system, systemType, _) in systems)
             {
-                if (processedSystems.Contains(systemType))
+                if (processedSystems.Contains(system))
                     continue;
                 
-                var dependencies = systemDependencies[systemType];
+                var dependencies = systemDependencies[system];
                 
                 // Check if all dependencies are satisfied
-                if (AreSystemDependenciesSatisfied(systemType, dependencies, processedSystems))
+                if (AreSystemDependenciesSatisfied(system, systemType, dependencies, processedSystems, systems))
                 {
                     // Check for component conflicts with current group
-                    if (CanAddToGroup(systemType, dependencies, currentGroup, systemDependencies))
+                    if (CanAddToGroup(system, dependencies, currentGroup, systemDependencies))
                     {
                         currentGroup.Add(system);
-                        processedSystems.Add(systemType);
+                        processedSystems.Add(system);
                         
                         // If any system in the group doesn't allow parallel execution, the whole group is sequential
                         if (!dependencies.AllowParallelExecution || dependencies.WriteComponents.Length > 0)
@@ -325,14 +332,20 @@ public sealed class SystemScheduler
     /// <summary>
     /// Check if all system dependencies are satisfied
     /// </summary>
-    private bool AreSystemDependenciesSatisfied(Type systemType, SystemDependencies dependencies, HashSet<Type> processedSystems)
+    private bool AreSystemDependenciesSatisfied(ISystem system, Type systemType, SystemDependencies dependencies, 
+        HashSet<ISystem> processedSystems, List<(ISystem System, Type SystemType, SystemExecutionAttribute? Attribute)> allSystems)
     {
         // Check RunAfter dependencies
         if (dependencies.RunAfter != null)
         {
-            foreach (var dependency in dependencies.RunAfter)
+            foreach (var dependencyType in dependencies.RunAfter)
             {
-                if (!processedSystems.Contains(dependency))
+                // Check if at least one system of the required type has been processed
+                var dependencySatisfied = allSystems
+                    .Where(s => s.SystemType == dependencyType && processedSystems.Contains(s.System))
+                    .Any();
+                    
+                if (!dependencySatisfied)
                     return false;
             }
         }
@@ -340,9 +353,14 @@ public sealed class SystemScheduler
         // Check RunBefore dependencies (systems that must run after this one shouldn't be processed yet)
         if (dependencies.RunBefore != null)
         {
-            foreach (var dependent in dependencies.RunBefore)
+            foreach (var dependentType in dependencies.RunBefore)
             {
-                if (processedSystems.Contains(dependent))
+                // Check if any system of the dependent type has been processed
+                var dependentProcessed = allSystems
+                    .Where(s => s.SystemType == dependentType && processedSystems.Contains(s.System))
+                    .Any();
+                    
+                if (dependentProcessed)
                     return false;
             }
         }
@@ -353,8 +371,8 @@ public sealed class SystemScheduler
     /// <summary>
     /// Check if a system can be added to the current execution group without conflicts
     /// </summary>
-    private bool CanAddToGroup(Type systemType, SystemDependencies dependencies, List<ISystem> currentGroup, 
-        Dictionary<Type, SystemDependencies> systemDependencies)
+    private bool CanAddToGroup(ISystem system, SystemDependencies dependencies, List<ISystem> currentGroup, 
+        Dictionary<ISystem, SystemDependencies> systemDependencies)
     {
         if (currentGroup.Count == 0)
             return true;
@@ -365,8 +383,7 @@ public sealed class SystemScheduler
         
         foreach (var existingSystem in currentGroup)
         {
-            var existingType = existingSystem.GetType();
-            if (!systemDependencies.TryGetValue(existingType, out var existingDeps))
+            if (!systemDependencies.TryGetValue(existingSystem, out var existingDeps))
                 continue;
             
             // Check for write-write conflicts
