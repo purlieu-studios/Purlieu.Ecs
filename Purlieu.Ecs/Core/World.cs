@@ -1,8 +1,10 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
 using PurlieuEcs.Events;
 using PurlieuEcs.Logging;
 using PurlieuEcs.Validation;
 using PurlieuEcs.Monitoring;
+using PurlieuEcs.Query;
 using System.Diagnostics;
 using System.Collections.Concurrent;
 
@@ -264,7 +266,7 @@ public sealed class World : IDisposable
     /// </summary>
     public bool IsAlive(Entity entity)
     {
-        if (entity.Id == 0 || entity.Id >= _nextEntityId)
+        if (entity.Id == 0 || entity.Id > _nextEntityId)
             return false;
         
         var record = _entities[(int)entity.Id - 1];
@@ -309,13 +311,6 @@ public sealed class World : IDisposable
         return archetype;
     }
     
-    /// <summary>
-    /// Creates a query builder for finding entities.
-    /// </summary>
-    public Query.WorldQuery Query()
-    {
-        return new Query.WorldQuery(this);
-    }
     
     /// <summary>
     /// Gets query cache performance statistics.
@@ -784,6 +779,83 @@ public sealed class World : IDisposable
             ClearOneFrameComponents(oneFrameTypes);
         }
     }
+    
+    #region Query Methods
+    
+    /// <summary>
+    /// Creates a query builder for fluent query construction.
+    /// </summary>
+    public WorldQuery Query() => new WorldQuery(this);
+    
+    /// <summary>
+    /// Executes an action for each entity matching the query (Arch ECS style).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Query<T1>(ForEachDelegate<T1> action) where T1 : unmanaged
+    {
+        Query().With<T1>().ForEach(action);
+    }
+    
+    /// <summary>
+    /// Executes an action for each entity matching the query (Arch ECS style).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Query<T1, T2>(ForEachDelegate<T1, T2> action) 
+        where T1 : unmanaged 
+        where T2 : unmanaged
+    {
+        Query().With<T1>().With<T2>().ForEach(action);
+    }
+    
+    /// <summary>
+    /// Executes an action for each entity matching the query (Arch ECS style).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Query<T1, T2, T3>(ForEachDelegate<T1, T2, T3> action)
+        where T1 : unmanaged
+        where T2 : unmanaged
+        where T3 : unmanaged
+    {
+        Query().With<T1>().With<T2>().With<T3>().ForEach(action);
+    }
+    
+    /// <summary>
+    /// Executes an action for each entity matching the query (Arch ECS style).
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void Query<T1, T2, T3, T4>(ForEachDelegate<T1, T2, T3, T4> action)
+        where T1 : unmanaged
+        where T2 : unmanaged
+        where T3 : unmanaged
+        where T4 : unmanaged
+    {
+        Query().With<T1>().With<T2>().With<T3>().With<T4>().ForEach(action);
+    }
+    
+    /// <summary>
+    /// Executes an action for each entity matching the query in parallel.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public void ParallelQuery<T1, T2>(ForEachRefDelegate<T1, T2> action)
+        where T1 : unmanaged
+        where T2 : unmanaged
+    {
+        Query().With<T1>().With<T2>().ParallelForEach(action);
+    }
+    
+    /// <summary>
+    /// Executes an action for each entity matching the query with SIMD optimization when available.
+    /// </summary>
+    public void QuerySimd<T1, T2>(
+        SimdProcessDelegate<T1, T2> simdProcessor,
+        ForEachRefDelegate<T1, T2> scalarFallback)
+        where T1 : unmanaged
+        where T2 : unmanaged
+    {
+        Query().With<T1>().With<T2>().ForEachSimd(simdProcessor, scalarFallback);
+    }
+    
+    #endregion
     
     /// <summary>
     /// Efficiently clears one-frame components by transitioning entities to new archetypes.

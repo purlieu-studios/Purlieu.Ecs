@@ -1,3 +1,4 @@
+using System.Collections;
 using System.Runtime.CompilerServices;
 using PurlieuEcs.Core;
 
@@ -69,7 +70,7 @@ internal static class ChunkPool
 /// <summary>
 /// Pooled chunk collection that automatically returns to pool when disposed.
 /// </summary>
-public readonly struct PooledChunkCollection : IDisposable
+public readonly struct PooledChunkCollection : IDisposable, IEnumerable<Chunk>
 {
     private readonly List<Chunk> _chunks;
     
@@ -82,6 +83,10 @@ public readonly struct PooledChunkCollection : IDisposable
     public ChunkEnumerator GetEnumerator() => new ChunkEnumerator(_chunks);
     
     public int Count => _chunks.Count;
+    
+    IEnumerator<Chunk> IEnumerable<Chunk>.GetEnumerator() => _chunks?.GetEnumerator() ?? Enumerable.Empty<Chunk>().GetEnumerator();
+    
+    IEnumerator IEnumerable.GetEnumerator() => ((IEnumerable<Chunk>)this).GetEnumerator();
     
     public void Dispose()
     {

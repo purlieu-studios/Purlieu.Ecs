@@ -41,7 +41,8 @@
       "Bash(del \"C:\\Purlieu.Ecs\\Purlieu.Ecs.Tests\\Core\\EASY_ApiTests.cs\")",
       "Bash(find:*)",
       "Bash(csc:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "WebFetch(domain:arch-ecs.gitbook.io)"
     ],
     "deny": [],
     "ask": []

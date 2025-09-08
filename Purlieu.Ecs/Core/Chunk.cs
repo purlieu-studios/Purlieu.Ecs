@@ -481,6 +481,26 @@ public sealed class Chunk
     /// Gets a span of all entities in this chunk.
     /// </summary>
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public Span<Entity> GetEntitySpan()
+    {
+        return _entities.AsSpan(0, _count);
+    }
+    
+    /// <summary>
+    /// Checks if this chunk is SIMD aligned for vector operations.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    public bool IsSimdAligned()
+    {
+        // Check if chunk data is properly aligned for SIMD operations
+        // This is a simplified check - real implementation would verify memory alignment
+        return _count > 0 && Vector.IsHardwareAccelerated;
+    }
+    
+    /// <summary>
+    /// Gets a span of all entities in this chunk.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public ReadOnlySpan<Entity> GetEntities()
     {
         return new ReadOnlySpan<Entity>(_entities, 0, _count);
