@@ -48,6 +48,7 @@ internal static class ComponentRegistry
 {
     private static readonly Dictionary<Type, IComponentOperations> _operations = new(capacity: 32);
     private static readonly HashSet<Type> _oneFrameComponents = new(capacity: 16);
+    private static readonly object _lock = new object();
     
     /// <summary>
     /// Registers a component type with its operations.
@@ -55,14 +56,17 @@ internal static class ComponentRegistry
     public static void Register<T>() where T : unmanaged
     {
         var type = typeof(T);
-        if (!_operations.ContainsKey(type))
+        lock (_lock)
         {
-            var operations = new ComponentOperations<T>();
-            _operations[type] = operations;
-            
-            if (operations.HasOneFrameAttribute)
+            if (!_operations.ContainsKey(type))
             {
-                _oneFrameComponents.Add(type);
+                var operations = new ComponentOperations<T>();
+                _operations[type] = operations;
+                
+                if (operations.HasOneFrameAttribute)
+                {
+                    _oneFrameComponents.Add(type);
+                }
             }
         }
     }
@@ -73,7 +77,10 @@ internal static class ComponentRegistry
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static IComponentOperations? Get(Type type)
     {
-        return _operations.TryGetValue(type, out var operations) ? operations : null;
+        lock (_lock)
+        {
+            return _operations.TryGetValue(type, out var operations) ? operations : null;
+        }
     }
     
     /// <summary>
@@ -82,7 +89,10 @@ internal static class ComponentRegistry
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static bool IsOneFrame(Type type)
     {
-        return _oneFrameComponents.Contains(type);
+        lock (_lock)
+        {
+            return _oneFrameComponents.Contains(type);
+        }
     }
     
     /// <summary>
@@ -105,6 +115,9 @@ internal static class ComponentRegistry
     /// </summary>
     public static IEnumerable<Type> GetOneFrameComponents()
     {
-        return _oneFrameComponents;
+        lock (_lock)
+        {
+            return _oneFrameComponents.ToArray(); // Return a copy to avoid concurrent modification
+        }
     }
 }

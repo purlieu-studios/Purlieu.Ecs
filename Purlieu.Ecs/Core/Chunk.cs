@@ -173,30 +173,38 @@ internal sealed class ComponentStorage<T> : IComponentStorage where T : unmanage
             ValidateSimdSupport();
         }
         
-        // Always try cache-line alignment for better memory performance
-        _components = CacheLineAlignedAllocator.AllocateAligned<T>(capacity);
-        
-        // If we have cache-line aligned memory and SIMD support, ensure SIMD alignment too
-        if (_isSimdSupported && _components.Length >= capacity)
+        // Optimize allocation strategy based on capacity
+        if (capacity <= 64) // Small archetype optimization - skip alignment for small chunks
         {
-            int vectorSize = GetEffectiveVectorSize();
+            _components = new T[capacity];
+        }
+        else
+        {
+            // For larger archetypes, use cache-line alignment for better memory performance
+            _components = CacheLineAlignedAllocator.AllocateAligned<T>(capacity);
             
-            // Check if we need additional SIMD alignment beyond cache-line alignment
-            if (_components.Length % vectorSize != 0)
+            // If we have cache-line aligned memory and SIMD support, ensure SIMD alignment too
+            if (_isSimdSupported && _components.Length >= capacity)
             {
-                // Calculate combined alignment (cache-line + SIMD)
-                var cacheLineAligned = CacheLineAlignedAllocator.GetAlignedCapacity<T>(capacity);
-                var simdAlignedCapacity = ((cacheLineAligned + vectorSize - 1) / vectorSize) * vectorSize;
-                var overhead = (simdAlignedCapacity - capacity) / (float)capacity;
+                int vectorSize = GetEffectiveVectorSize();
                 
-                if (overhead <= 0.3f || capacity >= 64) // Allow slightly more overhead for combined alignment
+                // Check if we need additional SIMD alignment beyond cache-line alignment
+                if (_components.Length % vectorSize != 0)
                 {
-                    _components = new T[simdAlignedCapacity];
-                }
-                else
-                {
-                    // Use just cache-line alignment if combined overhead is too high
-                    _isSimdSupported = false;
+                    // Calculate combined alignment (cache-line + SIMD)
+                    var cacheLineAligned = CacheLineAlignedAllocator.GetAlignedCapacity<T>(capacity);
+                    var simdAlignedCapacity = ((cacheLineAligned + vectorSize - 1) / vectorSize) * vectorSize;
+                    var overhead = (simdAlignedCapacity - capacity) / (float)capacity;
+                    
+                    if (overhead <= 0.3f || capacity >= 64) // Allow slightly more overhead for combined alignment
+                    {
+                        _components = new T[simdAlignedCapacity];
+                    }
+                    else
+                    {
+                        // Use just cache-line alignment if combined overhead is too high
+                        _isSimdSupported = false;
+                    }
                 }
             }
         }

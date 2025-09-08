@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Collections.Concurrent;
 
 namespace PurlieuEcs.Core;
 
@@ -13,7 +14,7 @@ internal sealed class ArchetypeIndex
     private readonly List<Archetype> _allArchetypes;
     
     // Cache for recent query results to avoid repeated computation
-    private readonly Dictionary<QuerySignatureKey, ArchetypeSet> _queryCache;
+    private readonly ConcurrentDictionary<QuerySignatureKey, ArchetypeSet> _queryCache;
     private int _archetypeVersion; // Incremented when archetypes change to invalidate cache
     
     // Cache performance metrics
@@ -25,7 +26,7 @@ internal sealed class ArchetypeIndex
     {
         _signatureBucketsIndex = new Dictionary<ulong, List<Archetype>>(expectedArchetypes);
         _allArchetypes = new List<Archetype>(expectedArchetypes);
-        _queryCache = new Dictionary<QuerySignatureKey, ArchetypeSet>(capacity: 32);
+        _queryCache = new ConcurrentDictionary<QuerySignatureKey, ArchetypeSet>();
         _archetypeVersion = 0;
     }
     
@@ -209,7 +210,7 @@ internal sealed class ArchetypeIndex
         // Remove affected cache entries
         foreach (var key in keysToRemove)
         {
-            _queryCache.Remove(key);
+            _queryCache.TryRemove(key, out _);
         }
         
         _cacheInvalidations += keysToRemove.Count;
@@ -243,7 +244,7 @@ internal sealed class ArchetypeIndex
         // Remove affected cache entries
         foreach (var key in keysToRemove)
         {
-            _queryCache.Remove(key);
+            _queryCache.TryRemove(key, out _);
         }
         
         _cacheInvalidations += keysToRemove.Count;

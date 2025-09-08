@@ -127,9 +127,23 @@ public class ONEFRAME_ClearingTests
         
         for (int frame = 0; frame < 10; frame++)
         {
-            // Add one-frame component
+            // Add one-frame component (this gets cleared each frame)
             _world.AddComponent(entity, new OneFrameComponent { Value = frame * 10 });
-            _world.AddComponent(entity, new Position { X = frame, Y = frame * 2, Z = frame * 3 });
+            
+            // Update Position component (proper ECS pattern: get reference and modify)
+            if (frame == 0)
+            {
+                // First frame: add the Position component
+                _world.AddComponent(entity, new Position { X = frame, Y = frame * 2, Z = frame * 3 });
+            }
+            else
+            {
+                // Subsequent frames: update existing Position by reference
+                ref var pos = ref _world.GetComponent<Position>(entity);
+                pos.X = frame;
+                pos.Y = frame * 2;
+                pos.Z = frame * 3;
+            }
             
             // Verify component exists
             Assert.That(_world.HasComponent<OneFrameComponent>(entity), Is.True);
@@ -142,8 +156,8 @@ public class ONEFRAME_ClearingTests
             Assert.That(_world.HasComponent<OneFrameComponent>(entity), Is.False);
             Assert.That(_world.HasComponent<Position>(entity), Is.True);
             
-            var pos = _world.GetComponent<Position>(entity);
-            Assert.That(pos.X, Is.EqualTo((float)frame));
+            var position = _world.GetComponent<Position>(entity);
+            Assert.That(position.X, Is.EqualTo((float)frame));
         }
     }
     

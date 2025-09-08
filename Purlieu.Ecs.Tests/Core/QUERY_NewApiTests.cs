@@ -430,9 +430,20 @@ public class QUERY_NewApiTests
         Console.WriteLine($"Inline query: {sw1.ElapsedMilliseconds}ms");
         Console.WriteLine($"Chunk iteration: {sw2.ElapsedMilliseconds}ms");
         
-        // Assert inline query is not significantly slower (within 20%)
-        Assert.That(sw1.ElapsedMilliseconds, Is.LessThan(sw2.ElapsedMilliseconds * 1.2),
-            "Inline query should have minimal overhead");
+        // In debug builds, both operations might be very fast (0ms), so adjust thresholds
+        // Assert inline query is not significantly slower - if both are 0ms, that's acceptable
+        if (sw2.ElapsedMilliseconds == 0 && sw1.ElapsedMilliseconds == 0)
+        {
+            // Both operations are extremely fast - this is good!
+            Assert.Pass("Both operations completed in under 1ms - excellent performance");
+        }
+        else
+        {
+            // Assert inline query is not significantly slower (within 20% + 1ms tolerance for debug builds)
+            var maxAcceptableTime = Math.Max(1, sw2.ElapsedMilliseconds * 1.2);
+            Assert.That(sw1.ElapsedMilliseconds, Is.LessThanOrEqualTo(maxAcceptableTime),
+                "Inline query should have minimal overhead");
+        }
     }
     
     #endregion
