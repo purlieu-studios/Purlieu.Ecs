@@ -277,19 +277,26 @@ public sealed class SystemScheduler
         var processedSystems = new HashSet<ISystem>(); // Track by instance, not type
         var systemDependencies = new Dictionary<ISystem, SystemDependencies>(); // Map instance to dependencies
         
+        // CRITICAL FIX: Sort systems by type name for deterministic execution order
+        var sortedSystems = systems.OrderBy(s => s.SystemType.FullName).ToList();
+        
         // Cache dependencies
-        foreach (var (system, systemType, _) in systems)
+        foreach (var (system, systemType, _) in sortedSystems)
         {
             systemDependencies[system] = system.GetDependencies();
         }
         
         // Process systems in dependency order
-        while (processedSystems.Count < systems.Count)
+        while (processedSystems.Count < sortedSystems.Count)
         {
             var currentGroup = new List<ISystem>();
             var canRunInParallel = true;
             
-            foreach (var (system, systemType, _) in systems)
+            // CRITICAL FIX: Find all available systems (dependencies satisfied) and sort them
+            // for deterministic ordering when multiple systems are ready to execute
+            var availableSystems = new List<(ISystem System, Type SystemType, SystemExecutionAttribute? Attribute)>();
+            
+            foreach (var (system, systemType, attribute) in sortedSystems)
             {
                 if (processedSystems.Contains(system))
                     continue;
@@ -297,19 +304,29 @@ public sealed class SystemScheduler
                 var dependencies = systemDependencies[system];
                 
                 // Check if all dependencies are satisfied
-                if (AreSystemDependenciesSatisfied(system, systemType, dependencies, processedSystems, systems))
+                if (AreSystemDependenciesSatisfied(system, systemType, dependencies, processedSystems, sortedSystems))
                 {
-                    // Check for component conflicts with current group
-                    if (CanAddToGroup(system, dependencies, currentGroup, systemDependencies))
+                    availableSystems.Add((system, systemType, attribute));
+                }
+            }
+            
+            // Sort available systems by type name for deterministic processing
+            availableSystems.Sort((a, b) => string.CompareOrdinal(a.SystemType.FullName, b.SystemType.FullName));
+            
+            foreach (var (system, systemType, _) in availableSystems)
+            {
+                var dependencies = systemDependencies[system];
+                
+                // Check for component conflicts with current group
+                if (CanAddToGroup(system, dependencies, currentGroup, systemDependencies))
+                {
+                    currentGroup.Add(system);
+                    processedSystems.Add(system);
+                    
+                    // If any system in the group doesn't allow parallel execution, the whole group is sequential
+                    if (!dependencies.AllowParallelExecution || dependencies.WriteComponents.Length > 0)
                     {
-                        currentGroup.Add(system);
-                        processedSystems.Add(system);
-                        
-                        // If any system in the group doesn't allow parallel execution, the whole group is sequential
-                        if (!dependencies.AllowParallelExecution || dependencies.WriteComponents.Length > 0)
-                        {
-                            canRunInParallel = false;
-                        }
+                        canRunInParallel = false;
                     }
                 }
             }

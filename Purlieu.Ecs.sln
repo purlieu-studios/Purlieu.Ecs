@@ -13,6 +13,8 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Purlieu.Logic", "Purlieu.Lo
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Purlieu.Logic.Tests", "Purlieu.Logic.Tests\Purlieu.Logic.Tests.csproj", "{B2C3D4E5-F6A7-8901-BCDE-234567890123}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Runner", "Runner\Runner.csproj", "{133C0987-7E8B-401B-A328-E246D9118CAF}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -39,6 +41,10 @@ Global
 		{B2C3D4E5-F6A7-8901-BCDE-234567890123}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{B2C3D4E5-F6A7-8901-BCDE-234567890123}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{B2C3D4E5-F6A7-8901-BCDE-234567890123}.Release|Any CPU.Build.0 = Release|Any CPU
+		{133C0987-7E8B-401B-A328-E246D9118CAF}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{133C0987-7E8B-401B-A328-E246D9118CAF}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{133C0987-7E8B-401B-A328-E246D9118CAF}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{133C0987-7E8B-401B-A328-E246D9118CAF}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
