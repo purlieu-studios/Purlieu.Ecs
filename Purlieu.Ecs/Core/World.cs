@@ -40,6 +40,7 @@ public sealed class World : IDisposable
     // Thread safety infrastructure
     internal readonly ReaderWriterLockSlim _queryMutationLock = new(LockRecursionPolicy.NoRecursion);
     private readonly ConcurrentDictionary<ulong, object> _archetypeLocks = new();
+    private bool _disposed;
     
     /// <summary>
     /// Gets the logger instance for this world
@@ -131,6 +132,7 @@ public sealed class World : IDisposable
     /// </summary>
     public Entity CreateEntity()
     {
+        ThrowIfDisposed();
         var stopwatch = Stopwatch.StartNew();
         try
         {
@@ -508,6 +510,7 @@ public sealed class World : IDisposable
     /// </summary>
     public ref T GetComponent<T>(Entity entity) where T : unmanaged
     {
+        ThrowIfDisposed();
         try
         {
             if (!IsAlive(entity))
@@ -1298,10 +1301,24 @@ public sealed class World : IDisposable
     #endregion
     
     /// <summary>
+    /// Throws ObjectDisposedException if the world has been disposed.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    internal void ThrowIfDisposed()
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(nameof(World));
+    }
+    
+    /// <summary>
     /// Disposes the world and cleans up all resources.
     /// </summary>
     public void Dispose()
     {
+        if (_disposed)
+            return;
+            
+        _disposed = true;
         _memoryManager?.Dispose();
         
         // Clear all event channels

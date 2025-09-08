@@ -131,6 +131,7 @@ public sealed class WorldQuery
     /// </summary>
     public int Count()
     {
+        _world.ThrowIfDisposed();
         using var chunks = Chunks();
         int count = 0;
         foreach (var chunk in chunks)
