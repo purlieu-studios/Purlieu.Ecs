@@ -48,7 +48,9 @@
       "Bash(taskkill:*)",
       "Bash(tasklist:*)",
       "Bash(verbosity=minimal)",
-      "Bash(verbosity=quiet)"
+      "Bash(verbosity=quiet)",
+      "Bash(git revert:*)",
+      "Bash(del nul)"
     ],
     "deny": [],
     "ask": []

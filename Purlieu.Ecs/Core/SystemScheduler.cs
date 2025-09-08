@@ -377,30 +377,30 @@ public sealed class SystemScheduler
         if (currentGroup.Count == 0)
             return true;
         
-        // Check for component access conflicts
-        var writeComponents = new HashSet<Type>(dependencies.WriteComponents);
-        var readComponents = new HashSet<Type>(dependencies.ReadComponents);
+        // Check for component access conflicts - handle null dependencies
+        var writeComponents = new HashSet<Type>(dependencies.WriteComponents ?? Enumerable.Empty<Type>());
+        var readComponents = new HashSet<Type>(dependencies.ReadComponents ?? Enumerable.Empty<Type>());
         
         foreach (var existingSystem in currentGroup)
         {
             if (!systemDependencies.TryGetValue(existingSystem, out var existingDeps))
                 continue;
             
-            // Check for write-write conflicts
-            foreach (var writeComponent in existingDeps.WriteComponents)
+            // Check for write-write conflicts - handle null collections
+            foreach (var writeComponent in existingDeps.WriteComponents ?? Enumerable.Empty<Type>())
             {
                 if (writeComponents.Contains(writeComponent))
                     return false; // Write-write conflict
             }
             
-            // Check for read-write conflicts
+            // Check for read-write conflicts - handle null collections
             foreach (var writeComponent in writeComponents)
             {
-                if (existingDeps.ReadComponents.Contains(writeComponent))
+                if ((existingDeps.ReadComponents ?? Enumerable.Empty<Type>()).Contains(writeComponent))
                     return false; // Read-write conflict
             }
             
-            foreach (var existingWriteComponent in existingDeps.WriteComponents)
+            foreach (var existingWriteComponent in existingDeps.WriteComponents ?? Enumerable.Empty<Type>())
             {
                 if (readComponents.Contains(existingWriteComponent))
                     return false; // Write-read conflict

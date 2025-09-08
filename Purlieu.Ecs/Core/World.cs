@@ -715,9 +715,10 @@ public sealed class World : IDisposable
                         var oldChunk = oldChunks[oldChunkIndex];
                         var newChunk = newChunks[newChunkIndex];
                         
-                        // CRITICAL FIX: Direct component copying to ensure data preservation
-                        // Instead of relying on complex delta system, directly copy all shared components
-                        foreach (var componentType in fromArchetype.ComponentTypes)
+                        // CRITICAL FIX: Thread-safe component copying to prevent enumeration modifications
+                        // Create snapshot of component types to avoid enumeration issues during concurrent operations
+                        var componentTypes = fromArchetype.ComponentTypes.ToArray();
+                        foreach (var componentType in componentTypes)
                         {
                             if (toArchetype.ComponentTypes.Contains(componentType))
                             {
