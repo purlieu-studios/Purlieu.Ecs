@@ -28,8 +28,8 @@ public class ARCH_SimpleTransformationTests
         for (int i = 0; i < entityCount; i++)
         {
             _world.Create(
-                new Position(i, i, i),
-                new Velocity(1, 2, 3)
+                new Position { X = i, Y = i, Z = i },
+                new Velocity { X = 1, Y = 2, Z = 3 }
             );
         }
         
@@ -88,9 +88,9 @@ public class ARCH_SimpleTransformationTests
         for (int i = 0; i < 50; i++)
         {
             _world.Create(
-                new Position(0, 0, 0),
-                new Velocity(0, 0, 0), 
-                new Acceleration(1, -9.8f, 0) // Gravity-like acceleration
+                new Position { X = 0, Y = 0, Z = 0 },
+                new Velocity { X = 0, Y = 0, Z = 0 }, 
+                new Acceleration { X = 1, Y = -9.8f, Z = 0 } // Gravity-like acceleration
             );
         }
         
@@ -134,7 +134,7 @@ public class ARCH_SimpleTransformationTests
         // BEFORE: Verbose entity creation + complex queries
         /*
         var entity = world.CreateEntity();
-        world.AddComponent(entity, new Position(10, 20, 30));
+        world.AddComponent(entity, new Position { X = 10, 20, 30));
         world.AddComponent(entity, new Velocity(1, 2, 3));
         
         var query = world.Query().With<Position>().With<Velocity>();
@@ -153,7 +153,7 @@ public class ARCH_SimpleTransformationTests
         */
         
         // NOW: Fluent creation + automatic optimization
-        var entity = _world.Create(new Position(10, 20, 30), new Velocity(1, 2, 3));
+        var entity = _world.Create(new Position { X = 10, Y = 20, Z = 30 }, new Velocity { X = 1, Y = 2, Z = 3 });
         _world.UpdateMovement(0.016f);
         
         // Same result, much cleaner code
@@ -171,8 +171,8 @@ public class ARCH_SimpleTransformationTests
         for (int i = 0; i < entityCount; i++)
         {
             _world.Create(
-                new Position(i, i, i),
-                new Velocity(1, 1, 1)
+                new Position { X = i, Y = i, Z = i },
+                new Velocity { X = 1, Y = 1, Z = 1 }
             );
         }
         

@@ -16,6 +16,12 @@ public class PERF_ArchetypeIndexTests
         _world = new World();
     }
     
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+    
     [Test]
     public void ArchetypeIndex_QueriesAreConstantTime_RegardlessOfArchetypeCount()
     {

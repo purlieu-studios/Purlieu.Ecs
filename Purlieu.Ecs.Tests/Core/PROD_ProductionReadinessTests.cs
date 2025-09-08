@@ -1,5 +1,4 @@
 using PurlieuEcs.Core;
-using PurlieuEcs.Systems;
 using PurlieuEcs.Snapshot;
 using System.Collections.Concurrent;
 
@@ -221,11 +220,11 @@ public class PROD_ProductionReadinessTests
     
     private class TestSystem : ISystem
     {
-        public void Update(World world, float deltaTime)
+        public void Execute(World world, float deltaTime)
         {
             // Simple system that processes entities
             var query = world.Query().With<Position>();
-            foreach (var chunk in query.ChunksStack())
+            foreach (var chunk in query.Chunks())
             {
                 var positions = chunk.GetSpan<Position>();
                 for (int i = 0; i < positions.Length; i++)
@@ -239,6 +238,11 @@ public class PROD_ProductionReadinessTests
                     };
                 }
             }
+        }
+        
+        public SystemDependencies GetDependencies()
+        {
+            return SystemDependencies.WriteOnly(typeof(Position));
         }
     }
 }

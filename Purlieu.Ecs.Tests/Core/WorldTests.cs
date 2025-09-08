@@ -13,6 +13,12 @@ public class WorldTests
         _world = new World();
     }
     
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+    
     [Test]
     public void CreateEntity_ReturnsValidEntity()
     {

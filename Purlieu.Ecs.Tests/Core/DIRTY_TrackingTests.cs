@@ -22,6 +22,12 @@ public class DIRTY_TrackingTests
         LogicBootstrap.RegisterComponents(_world);
     }
 
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+
     [Test]
     public void DirtyTracking_ComponentModification_MarksAsDirty()
     {

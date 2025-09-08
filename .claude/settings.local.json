@@ -38,7 +38,9 @@
       "Bash(dir:*)",
       "WebSearch",
       "WebFetch(domain:github.com)",
-      "Bash(del \"C:\\Purlieu.Ecs\\Purlieu.Ecs.Tests\\Core\\EASY_ApiTests.cs\")"
+      "Bash(del \"C:\\Purlieu.Ecs\\Purlieu.Ecs.Tests\\Core\\EASY_ApiTests.cs\")",
+      "Bash(find:*)",
+      "Bash(csc:*)"
     ],
     "deny": [],
     "ask": []

@@ -31,6 +31,12 @@ public class DELTA_MigrationTests
         ComponentDeltaCache.ClearCache();
     }
 
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+
     [Test]
     public void DeltaMigration_ComponentPreservation_MaintainsDataDuringMigration()
     {

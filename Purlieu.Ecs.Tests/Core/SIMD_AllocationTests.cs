@@ -24,6 +24,12 @@ public class SIMD_AllocationTests
         GC.Collect();
     }
 
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+
     [Test]
     public void SIMD_ComponentStorageCreation_NoExtraAllocations()
     {

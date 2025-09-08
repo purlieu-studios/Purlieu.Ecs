@@ -17,6 +17,12 @@ public class ALLOC_AllocationTests
         GC.Collect();
     }
 
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+
     [Test]
     public void ALLOC_EntityCreation_NoHeapAllocation()
     {

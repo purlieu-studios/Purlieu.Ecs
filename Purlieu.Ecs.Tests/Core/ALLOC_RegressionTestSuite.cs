@@ -2,6 +2,8 @@ using NUnit.Framework;
 using PurlieuEcs.Core;
 using Purlieu.Logic.Components;
 using Purlieu.Logic;
+using Position = Purlieu.Logic.Components.Position;
+using Velocity = Purlieu.Logic.Components.Velocity;
 
 namespace Purlieu.Ecs.Tests.Core;
 
@@ -25,10 +27,16 @@ public class ALLOC_RegressionTestSuite
         for (int i = 0; i < 1000; i++)
         {
             var entity = _world.CreateEntity();
-            _world.AddComponent(entity, new Position(i, i, i));
-            if (i % 2 == 0) _world.AddComponent(entity, new Velocity(1, 1, 1));
+            _world.AddComponent(entity, new Position { X = i, Y = i, Z = i });
+            if (i % 2 == 0) _world.AddComponent(entity, new Velocity { X = 1, Y = 1, Z = 1 });
             if (i % 3 == 0) _world.AddComponent(entity, new Stunned());
         }
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
     }
 
     [Test]
@@ -139,8 +147,8 @@ public class ALLOC_RegressionTestSuite
         for (int i = 0; i < 100; i++)
         {
             var entity = smallWorld.CreateEntity();
-            smallWorld.AddComponent(entity, new Position(i, i, i));
-            smallWorld.AddComponent(entity, new Velocity(1, 1, 1));
+            smallWorld.AddComponent(entity, new Position { X = i, Y = i, Z = i });
+            smallWorld.AddComponent(entity, new Velocity { X = 1, Y = 1, Z = 1 });
         }
         
         GC.Collect();

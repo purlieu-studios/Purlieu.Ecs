@@ -357,9 +357,8 @@ public class FUZZ_RobustnessTests
                 case 6: // Modify Component1
                     if (_world.HasComponent<FuzzComponent1>(entity))
                     {
-                        var comp = _world.GetComponent<FuzzComponent1>(entity);
+                        ref var comp = ref _world.GetComponent<FuzzComponent1>(entity);
                         comp.Value += 1000;
-                        _world.SetComponent(entity, comp);
                     }
                     break;
                 case 7: // Verify Component1 still exists and has valid data

@@ -204,7 +204,7 @@ public class PurlieuEcsWrapper : IDisposable
     {
         foreach (var entity in _entities)
         {
-            _world.AddComponent(entity, new BenchPosition { X = 1, Y = 2, Z = 3 });
+            _world.AddComponent(entity, new CompPosition { X = 1, Y = 2, Z = 3 });
             if (_entities.IndexOf(entity) % 2 == 0)
                 _world.AddComponent(entity, new BenchVelocity { X = 0.1f, Y = 0.2f, Z = 0.3f });
         }
@@ -213,11 +213,11 @@ public class PurlieuEcsWrapper : IDisposable
     public float QueryAndProcess()
     {
         float sum = 0;
-        var query = _world.Query().With<BenchPosition>().With<BenchVelocity>();
+        var query = _world.Query().With<CompPosition>().With<BenchVelocity>();
 
         foreach (var chunk in query.Chunks())
         {
-            var positions = chunk.GetSpan<BenchPosition>();
+            var positions = chunk.GetSpan<CompPosition>();
             var velocities = chunk.GetSpan<BenchVelocity>();
 
             for (int i = 0; i < chunk.Count; i++)
@@ -232,11 +232,11 @@ public class PurlieuEcsWrapper : IDisposable
     public void ExecuteSystem()
     {
         const float deltaTime = 0.016f;
-        var query = _world.Query().With<BenchPosition>().With<BenchVelocity>();
+        var query = _world.Query().With<CompPosition>().With<BenchVelocity>();
 
         foreach (var chunk in query.Chunks())
         {
-            var positions = chunk.GetSpan<BenchPosition>();
+            var positions = chunk.GetSpan<CompPosition>();
             var velocities = chunk.GetSpan<BenchVelocity>();
 
             for (int i = 0; i < chunk.Count; i++)
@@ -254,10 +254,10 @@ public class PurlieuEcsWrapper : IDisposable
         ExecuteSystem(); // Movement
         
         // Simulate collision detection
-        var query = _world.Query().With<BenchPosition>();
+        var query = _world.Query().With<CompPosition>();
         foreach (var chunk in query.Chunks())
         {
-            var positions = chunk.GetSpan<BenchPosition>();
+            var positions = chunk.GetSpan<CompPosition>();
             for (int i = 0; i < chunk.Count; i++)
             {
                 if (positions[i].X > 100) positions[i].X = 0;
@@ -277,7 +277,7 @@ public class PurlieuEcsWrapper : IDisposable
 /// </summary>
 public class NaiveEcsWrapper : IDisposable
 {
-    private readonly Dictionary<int, BenchPosition> _positions = new();
+    private readonly Dictionary<int, CompPosition> _positions = new();
     private readonly Dictionary<int, BenchVelocity> _velocities = new();
     private readonly List<int> _entities = new();
     private int _nextId = 1;
@@ -300,7 +300,7 @@ public class NaiveEcsWrapper : IDisposable
     {
         foreach (var entityId in _entities)
         {
-            _positions[entityId] = new BenchPosition { X = 1, Y = 2, Z = 3 };
+            _positions[entityId] = new CompPosition { X = 1, Y = 2, Z = 3 };
             if (entityId % 2 == 0)
                 _velocities[entityId] = new BenchVelocity { X = 0.1f, Y = 0.2f, Z = 0.3f };
         }
@@ -359,7 +359,7 @@ public class NaiveEcsWrapper : IDisposable
 /// </summary>
 public class ArchEcsWrapper : IDisposable
 {
-    private readonly BenchPosition[] _positions;
+    private readonly CompPosition[] _positions;
     private readonly BenchVelocity[] _velocities;
     private readonly bool[] _hasPosition;
     private readonly bool[] _hasVelocity;
@@ -369,7 +369,7 @@ public class ArchEcsWrapper : IDisposable
     public ArchEcsWrapper(int capacity)
     {
         _capacity = capacity;
-        _positions = new BenchPosition[capacity];
+        _positions = new CompPosition[capacity];
         _velocities = new BenchVelocity[capacity];
         _hasPosition = new bool[capacity];
         _hasVelocity = new bool[capacity];
@@ -384,7 +384,7 @@ public class ArchEcsWrapper : IDisposable
     {
         for (int i = 0; i < _entityCount; i++)
         {
-            _positions[i] = new BenchPosition { X = 1, Y = 2, Z = 3 };
+            _positions[i] = new CompPosition { X = 1, Y = 2, Z = 3 };
             _hasPosition[i] = true;
             
             if (i % 2 == 0)
@@ -475,7 +475,7 @@ public class UnityEcsWrapper : IDisposable
             
             for (int i = 0; i < entitiesToAdd; i++)
             {
-                chunk.Positions[i] = new BenchPosition { X = 1, Y = 2, Z = 3 };
+                chunk.Positions[i] = new CompPosition { X = 1, Y = 2, Z = 3 };
                 if ((entityIndex + i) % 2 == 0)
                 {
                     chunk.Velocities[i] = new BenchVelocity { X = 0.1f, Y = 0.2f, Z = 0.3f };
@@ -538,14 +538,14 @@ public class UnityEcsWrapper : IDisposable
 
     private class UnityChunk
     {
-        public readonly BenchPosition[] Positions;
+        public readonly CompPosition[] Positions;
         public readonly BenchVelocity[] Velocities;
         public readonly bool[] HasVelocity;
         public int EntityCount;
 
         public UnityChunk(int capacity)
         {
-            Positions = new BenchPosition[capacity];
+            Positions = new CompPosition[capacity];
             Velocities = new BenchVelocity[capacity];
             HasVelocity = new bool[capacity];
         }
@@ -554,7 +554,7 @@ public class UnityEcsWrapper : IDisposable
 
 // ============= Benchmark Components =============
 
-internal struct BenchPosition
+internal struct CompPosition
 {
     public float X, Y, Z;
 }

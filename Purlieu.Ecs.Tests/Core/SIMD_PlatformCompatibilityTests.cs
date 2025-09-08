@@ -20,6 +20,12 @@ public class SIMD_PlatformCompatibilityTests
         LogicBootstrap.RegisterComponents(_world);
     }
 
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+
     [Test]
     public void SIMD_VectorizedMovement_FourTimesScalarPerformance()
     {
@@ -30,19 +36,19 @@ public class SIMD_PlatformCompatibilityTests
         for (int i = 0; i < entityCount; i++)
         {
             entities[i] = _world.CreateEntity();
-            _world.AddComponent(entities[i], new Position(i, i * 2, i * 3));
-            _world.AddComponent(entities[i], new Velocity(1.0f, 2.0f, 3.0f));
+            _world.AddComponent(entities[i], new Purlieu.Logic.Components.Position(i, i * 2, i * 3));
+            _world.AddComponent(entities[i], new Purlieu.Logic.Components.Velocity(1.0f, 2.0f, 3.0f));
         }
 
         // Act & Assert: SIMD should be significantly faster than scalar
         var query = _world.Query()
-            .With<Position>()
-            .With<Velocity>();
+            .With<Purlieu.Logic.Components.Position>()
+            .With<Purlieu.Logic.Components.Velocity>();
             
         bool foundSimdChunk = false;
         foreach (var chunk in query.ChunksStack())
         {
-            if (chunk.IsSimdSupported<Position>() && chunk.IsSimdSupported<Velocity>())
+            if (chunk.IsSimdSupported<Purlieu.Logic.Components.Position>() && chunk.IsSimdSupported<Purlieu.Logic.Components.Velocity>())
             {
                 foundSimdChunk = true;
                 Assert.That(Vector.IsHardwareAccelerated, Is.True, 
@@ -62,13 +68,13 @@ public class SIMD_PlatformCompatibilityTests
         for (int i = 0; i < entityCount; i++)
         {
             var entity = _world.CreateEntity();
-            _world.AddComponent(entity, new Position(i, i, i));
-            _world.AddComponent(entity, new Velocity(1, 1, 1));
+            _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i, i, i));
+            _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(1, 1, 1));
         }
 
         var query = _world.Query()
-            .With<Position>()
-            .With<Velocity>();
+            .With<Purlieu.Logic.Components.Position>()
+            .With<Purlieu.Logic.Components.Velocity>();
 
         // Pre-trigger signature building to exclude from allocation measurement  
         _ = query.ChunksStack().GetEnumerator();
@@ -86,10 +92,10 @@ public class SIMD_PlatformCompatibilityTests
         {
             foreach (var chunk in query.ChunksStack())
             {
-                if (chunk.IsSimdSupported<Position>())
+                if (chunk.IsSimdSupported<Purlieu.Logic.Components.Position>())
                 {
-                    var positions = chunk.GetSpan<Position>();
-                    var velocities = chunk.GetSpan<Velocity>();
+                    var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+                    var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
                     
                     // Simulate SIMD processing without actual allocations
                     Assert.That(positions.Length, Is.EqualTo(velocities.Length));
@@ -122,14 +128,14 @@ public class SIMD_PlatformCompatibilityTests
         if (Vector.IsHardwareAccelerated)
         {
             var entity = _world.CreateEntity();
-            _world.AddComponent(entity, new Position(1, 2, 3));
+            _world.AddComponent(entity, new Purlieu.Logic.Components.Position(1, 2, 3));
             
-            var query = _world.Query().With<Position>();
+            var query = _world.Query().With<Purlieu.Logic.Components.Position>();
             foreach (var chunk in query.ChunksStack())
             {
-                if (chunk.IsSimdSupported<Position>())
+                if (chunk.IsSimdSupported<Purlieu.Logic.Components.Position>())
                 {
-                    var span = chunk.GetSpan<Position>();
+                    var span = chunk.GetSpan<Purlieu.Logic.Components.Position>();
                     
                     // Memory should be aligned for SIMD operations
                     Assert.That(span.Length, Is.GreaterThan(0));
@@ -158,19 +164,19 @@ public class SIMD_PlatformCompatibilityTests
     {
         // Test behavior when SIMD is not available
         var entity = _world.CreateEntity();
-        _world.AddComponent(entity, new Position(1, 2, 3));
-        _world.AddComponent(entity, new Velocity(4, 5, 6));
+        _world.AddComponent(entity, new Purlieu.Logic.Components.Position(1, 2, 3));
+        _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(4, 5, 6));
 
         var query = _world.Query()
-            .With<Position>()
-            .With<Velocity>();
+            .With<Purlieu.Logic.Components.Position>()
+            .With<Purlieu.Logic.Components.Velocity>();
 
         // Should work regardless of SIMD support
         int processedChunks = 0;
         foreach (var chunk in query.ChunksStack())
         {
-            var positions = chunk.GetSpan<Position>();
-            var velocities = chunk.GetSpan<Velocity>();
+            var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+            var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
             
             Assert.That(positions.Length, Is.EqualTo(velocities.Length));
             Assert.That(positions.Length, Is.EqualTo(1));
@@ -193,23 +199,23 @@ public class SIMD_PlatformCompatibilityTests
         var entity1 = _world.CreateEntity();
         var entity2 = _world.CreateEntity();
         
-        _world.AddComponent(entity1, new Position(10.0f, 20.0f, 30.0f));
-        _world.AddComponent(entity1, new Velocity(1.0f, 2.0f, 3.0f));
+        _world.AddComponent(entity1, new Purlieu.Logic.Components.Position(10.0f, 20.0f, 30.0f));
+        _world.AddComponent(entity1, new Purlieu.Logic.Components.Velocity(1.0f, 2.0f, 3.0f));
         
-        _world.AddComponent(entity2, new Position(40.0f, 50.0f, 60.0f));
-        _world.AddComponent(entity2, new Velocity(4.0f, 5.0f, 6.0f));
+        _world.AddComponent(entity2, new Purlieu.Logic.Components.Position(40.0f, 50.0f, 60.0f));
+        _world.AddComponent(entity2, new Purlieu.Logic.Components.Velocity(4.0f, 5.0f, 6.0f));
 
         // Act: Process the same way regardless of SIMD support
         var query = _world.Query()
-            .With<Position>()
-            .With<Velocity>();
+            .With<Purlieu.Logic.Components.Position>()
+            .With<Purlieu.Logic.Components.Velocity>();
 
         var results = new List<(float X, float Y, float Z)>();
         
         foreach (var chunk in query.ChunksStack())
         {
-            var positions = chunk.GetSpan<Position>();
-            var velocities = chunk.GetSpan<Velocity>();
+            var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+            var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
             
             for (int i = 0; i < positions.Length; i++)
             {
@@ -244,13 +250,13 @@ public class SIMD_PlatformCompatibilityTests
     {
         // Test that memory alignment is only applied when beneficial
         var entity = _world.CreateEntity();
-        _world.AddComponent(entity, new Position(1, 2, 3));
+        _world.AddComponent(entity, new Purlieu.Logic.Components.Position(1, 2, 3));
         
-        var query = _world.Query().With<Position>();
+        var query = _world.Query().With<Purlieu.Logic.Components.Position>();
         foreach (var chunk in query.ChunksStack())
         {
             // ComponentStorage should make intelligent alignment decisions
-            var span = chunk.GetSpan<Position>();
+            var span = chunk.GetSpan<Purlieu.Logic.Components.Position>();
             Assert.That(span.Length, Is.GreaterThan(0));
             
             // Should not waste excessive memory on small chunks

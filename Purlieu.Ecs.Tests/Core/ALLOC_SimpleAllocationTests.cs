@@ -30,7 +30,7 @@ public class ALLOC_SimpleAllocationTests
     [TearDown]
     public void Cleanup()
     {
-        _world = null!;
+        _world?.Dispose();
         _entities = null!;
     }
 

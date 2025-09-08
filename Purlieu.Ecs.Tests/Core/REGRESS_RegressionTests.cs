@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Reflection;
 using NUnit.Framework;
 using PurlieuEcs.Core;
@@ -99,10 +100,10 @@ public class REGRESS_RegressionTests
         {
             var entity = _world.CreateEntity();
             _world.AddComponent(entity, new TestComponent { Value = i });
-            if (i % 2 == 0) _world.AddComponent(entity, new TestComponent2 { Value = i * 2 });
+            if (i % 2 == 0) _world.AddComponent(entity, new RegressTestComponent2 { Value = i * 2 });
         }
         
-        var query = _world.Query().With<TestComponent>().With<TestComponent2>();
+        var query = _world.Query().With<TestComponent>().With<RegressTestComponent2>();
         
         // Run query multiple times and ensure identical results
         var firstRunResults = new List<int>();
@@ -141,33 +142,33 @@ public class REGRESS_RegressionTests
         
         var entity = _world.CreateEntity();
         _world.AddComponent(entity, new TestComponent { Value = 42 });
-        _world.AddComponent(entity, new TestComponent2 { Value = 84 });
+        _world.AddComponent(entity, new RegressTestComponent2 { Value = 84 });
         
         // Verify initial state
         Assert.That(_world.GetComponent<TestComponent>(entity).Value, Is.EqualTo(42));
-        Assert.That(_world.GetComponent<TestComponent2>(entity).Value, Is.EqualTo(84));
+        Assert.That(_world.GetComponent<RegressTestComponent2>(entity).Value, Is.EqualTo(84));
         
         // Add component (causes archetype transition)
-        _world.AddComponent(entity, new TestComponent3 { Value = 126 });
+        _world.AddComponent(entity, new RegressTestComponent3 { Value = 126 });
         
         // Verify all data preserved
         Assert.That(_world.GetComponent<TestComponent>(entity).Value, Is.EqualTo(42), 
                    "TestComponent data should be preserved");
-        Assert.That(_world.GetComponent<TestComponent2>(entity).Value, Is.EqualTo(84), 
-                   "TestComponent2 data should be preserved");
-        Assert.That(_world.GetComponent<TestComponent3>(entity).Value, Is.EqualTo(126), 
-                   "TestComponent3 data should be present");
+        Assert.That(_world.GetComponent<RegressTestComponent2>(entity).Value, Is.EqualTo(84), 
+                   "RegressTestComponent2 data should be preserved");
+        Assert.That(_world.GetComponent<RegressTestComponent3>(entity).Value, Is.EqualTo(126), 
+                   "RegressTestComponent3 data should be present");
         
         // Remove component (another archetype transition)
-        _world.RemoveComponent<TestComponent2>(entity);
+        _world.RemoveComponent<RegressTestComponent2>(entity);
         
         // Verify remaining data preserved
         Assert.That(_world.GetComponent<TestComponent>(entity).Value, Is.EqualTo(42), 
                    "TestComponent data should still be preserved");
-        Assert.That(_world.GetComponent<TestComponent3>(entity).Value, Is.EqualTo(126), 
-                   "TestComponent3 data should still be preserved");
-        Assert.That(_world.HasComponent<TestComponent2>(entity), Is.False, 
-                   "TestComponent2 should be removed");
+        Assert.That(_world.GetComponent<RegressTestComponent3>(entity).Value, Is.EqualTo(126), 
+                   "RegressTestComponent3 data should still be preserved");
+        Assert.That(_world.HasComponent<RegressTestComponent2>(entity), Is.False, 
+                   "RegressTestComponent2 should be removed");
     }
 
     [Test]
@@ -195,7 +196,7 @@ public class REGRESS_RegressionTests
     {
         // Historical bug: Querying for non-existent components could cause NRE
         
-        var query = _world.Query().With<TestComponent>().With<TestComponent2>().With<TestComponent3>();
+        var query = _world.Query().With<TestComponent>().With<RegressTestComponent2>().With<RegressTestComponent3>();
         
         // Should not throw even with no matching entities
         Assert.DoesNotThrow(() =>
@@ -232,8 +233,8 @@ public class REGRESS_RegressionTests
                     {
                         // Access component type IDs from multiple threads
                         typeIds.Add(ComponentTypeId.Get<TestComponent>());
-                        typeIds.Add(ComponentTypeId.Get<TestComponent2>());
-                        typeIds.Add(ComponentTypeId.Get<TestComponent3>());
+                        typeIds.Add(ComponentTypeId.Get<RegressTestComponent2>());
+                        typeIds.Add(ComponentTypeId.Get<RegressTestComponent3>());
                     }
                 }
                 catch (Exception ex)
@@ -281,7 +282,7 @@ public class REGRESS_RegressionTests
         // This test ensures we don't accidentally break the public API
         var worldType = typeof(World);
         var entityType = typeof(Entity);
-        var queryType = typeof(Query);
+        var queryType = typeof(PurlieuEcs.Query.WorldQuery);
         
         // Critical methods that must exist
         Assert.That(worldType.GetMethod("CreateEntity", Type.EmptyTypes), Is.Not.Null, 
@@ -312,12 +313,12 @@ internal struct TestComponent
     public int Value;
 }
 
-internal struct TestComponent2  
+internal struct RegressTestComponent2  
 {
     public int Value;
 }
 
-internal struct TestComponent3
+internal struct RegressTestComponent3
 {
     public int Value;
 }

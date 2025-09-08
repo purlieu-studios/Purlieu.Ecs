@@ -29,6 +29,12 @@ public class SIMD_MovementTests
         GC.WaitForPendingFinalizers();
         GC.Collect();
     }
+    
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
 
     [Test]
     public void SIMD_MovementSystem_ProcessesVelocityCorrectly()
@@ -43,7 +49,7 @@ public class SIMD_MovementTests
         }
         
         // Execute movement system
-        _movementSystem.Update(_world, 0.016f);
+        _movementSystem.Execute(_world, 0.016f);
         
         // Verify positions were updated correctly (60 FPS = 0.016f deltaTime)
         const float expectedDelta = 0.016f;
@@ -67,7 +73,7 @@ public class SIMD_MovementTests
         _world.AddComponent(entity, new Velocity(5f, 10f, 15f));
         _world.AddComponent(entity, new Stunned(1.0f));
         
-        _movementSystem.Update(_world, 0.016f);
+        _movementSystem.Execute(_world, 0.016f);
         
         // Position should not change for stunned entities
         ref var position = ref _world.GetComponent<Position>(entity);
@@ -86,7 +92,7 @@ public class SIMD_MovementTests
         _world.AddComponent(entity, initialVelocity);
         _world.AddComponent(entity, new Force(10f, 20f, 30f));
         
-        _movementSystem.Update(_world, 0.016f);
+        _movementSystem.Execute(_world, 0.016f);
         
         // Velocity should be updated by force (F = ma, a = F/m, m = 1, dt = 0.016)
         const float expectedAcceleration = 0.016f; // dt/mass
@@ -115,7 +121,7 @@ public class SIMD_MovementTests
         var eventChannel = _world.Events<PositionChangedEvent>();
         var initialEventCount = eventChannel.Count;
         
-        _movementSystem.Update(_world, 0.016f);
+        _movementSystem.Execute(_world, 0.016f);
         
         // Position should be updated by intent * speed
         ref var position = ref _world.GetComponent<Position>(entity);
@@ -149,7 +155,7 @@ public class SIMD_MovementTests
         // Run movement system multiple times
         for (int i = 0; i < 100; i++)
         {
-            _movementSystem.Update(_world, 0.016f);
+            _movementSystem.Execute(_world, 0.016f);
         }
         
         long finalGen0 = GC.CollectionCount(0);

@@ -151,7 +151,7 @@ public class EDGE_EdgeCaseTests
 
     [Test]
     [Description("Edge: Very large component data")]
-    public void VeryLargeComponentData()
+    public unsafe void VeryLargeComponentData()
     {
         var entity = _world.CreateEntity();
         
@@ -357,11 +357,12 @@ public class EDGE_EdgeCaseTests
         Assert.That(component.Value, Is.EqualTo(0), "Default component should have default values");
         
         // Modify to non-default
-        _world.SetComponent(entity, new Component1 { Value = 42 });
+        ref var comp = ref _world.GetComponent<Component1>(entity);
+        comp.Value = 42;
         Assert.That(_world.GetComponent<Component1>(entity).Value, Is.EqualTo(42));
         
         // Set back to default
-        _world.SetComponent<Component1>(entity, default);
+        comp = default;
         Assert.That(_world.GetComponent<Component1>(entity).Value, Is.EqualTo(0), 
                    "Should be able to set back to default");
     }

@@ -4,6 +4,7 @@ using NUnit.Framework;
 using PurlieuEcs.Core;
 using PurlieuEcs.Logging;
 using PurlieuEcs.Monitoring;
+using PurlieuEcs.Query;
 
 namespace Purlieu.Ecs.Tests.Core;
 
@@ -395,9 +396,9 @@ public class STRESS_ScaleTests
 
         foreach (var archetype in archetypes)
         {
-            totalChunks += archetype.ChunkCount;
+            totalChunks += archetype.GetChunks().Count;
             totalEntities += archetype.EntityCount;
-            totalCapacity += archetype.ChunkCount * 512; // ChunkCapacity
+            totalCapacity += archetype.GetChunks().Count * 512; // ChunkCapacity
         }
 
         var utilization = totalCapacity > 0 ? (double)totalEntities / totalCapacity : 0;
@@ -409,7 +410,7 @@ public class STRESS_ScaleTests
         Assert.That(totalChunks, Is.LessThan(entityCount / 50), "Should not have excessive chunks (indicates fragmentation)");
     }
 
-    private void MeasureQueryPerformance(string queryName, Func<Query> createQuery)
+    private void MeasureQueryPerformance(string queryName, Func<WorldQuery> createQuery)
     {
         const int iterations = 100;
         var times = new List<double>();

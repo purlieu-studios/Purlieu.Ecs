@@ -4,6 +4,7 @@ using PurlieuEcs.Core;
 using PurlieuEcs.Events;
 using PurlieuEcs.Logging;
 using PurlieuEcs.Monitoring;
+using PurlieuEcs.Snapshot;
 
 namespace Purlieu.Ecs.Tests.Integration;
 
@@ -410,7 +411,10 @@ internal class GameSimulation : IDisposable
 
     public void SimulatePlayerInput(Entity player, PlayerInput input)
     {
-        _world.SetComponent(player, input);
+        // Remove and re-add component (SetComponent replacement)
+        if (_world.HasComponent<PlayerInput>(player))
+            _world.RemoveComponent<PlayerInput>(player);
+        _world.AddComponent(player, input);
     }
 
     public Vector3 GetEntityPosition(Entity entity)
@@ -420,9 +424,8 @@ internal class GameSimulation : IDisposable
 
     public void SetEntityPosition(Entity entity, Vector3 position)
     {
-        var transform = _world.GetComponent<Transform>(entity);
+        ref var transform = ref _world.GetComponent<Transform>(entity);
         transform.Position = position;
-        _world.SetComponent(entity, transform);
     }
 
     public int GetEntityHealth(Entity entity)
@@ -439,7 +442,12 @@ internal class GameSimulation : IDisposable
     public Entity[] GetEnemyEntities() => _enemies.ToArray();
     public Entity[] GetItemEntities() => _items.ToArray();
     public int GetDeadEntityCount() => _deadEntities.Count;
-    public List<AttackEvent> GetAttackEvents() => _world.Events<AttackEvent>().ConsumeAll().ToList();
+    public List<AttackEvent> GetAttackEvents() 
+    { 
+        var events = new List<AttackEvent>();
+        _world.Events<AttackEvent>().ConsumeAll(e => events.Add(e));
+        return events;
+    }
 
     public void EnableEventTracking() => _trackEvents = true;
     public List<string> GetTrackedEvents() => new(_trackedEvents);
@@ -448,7 +456,7 @@ internal class GameSimulation : IDisposable
     {
         return new GameSaveData
         {
-            Snapshot = _world.CreateSnapshot(),
+            Snapshot = WorldSnapshot.Save(_world).Value,
             PlayerIds = _players.Select(p => p.Id).ToArray(),
             EnemyIds = _enemies.Select(e => e.Id).ToArray(),
             ItemIds = _items.Select(i => i.Id).ToArray()
@@ -458,7 +466,7 @@ internal class GameSimulation : IDisposable
     public void LoadGame(GameSaveData saveData)
     {
         _world = new World();
-        _world.RestoreSnapshot(saveData.Snapshot);
+        WorldSnapshot.Load(_world, saveData.Snapshot);
         
         _players.Clear();
         _enemies.Clear();
@@ -500,7 +508,7 @@ internal class GameSimulation : IDisposable
             });
             _world.AddComponent(enemy, new Health { Current = 50, Max = 50 });
             _world.AddComponent(enemy, new EnemyTag());
-            _world.AddComponent(enemy, new AIState { Target = Entity.Null, State = AIStateType.Idle });
+            _world.AddComponent(enemy, new AIState { Target = Entity.Invalid, State = AIStateType.Idle });
             _world.AddComponent(enemy, new CombatStats { Damage = 5, Defense = 2 });
             _enemies.Add(enemy);
         }
@@ -597,7 +605,7 @@ internal struct EnemyTag { }
 internal struct ItemTag { }
 
 // Events
-internal struct AttackEvent : IEvent
+internal struct AttackEvent
 {
     public Entity Attacker;
     public Entity Target;
@@ -609,9 +617,7 @@ internal class InputSystem : ISystem
 {
     public void Execute(World world, float deltaTime)
     {
-        // Process player input
-        if (world.Events<string>().Count() > 0)
-            world.Events<string>().ConsumeAll(e => { if (e.Contains("Input")) { } });
+        // Process player input (placeholder)
     }
     
     public SystemDependencies GetDependencies() => SystemDependencies.WriteOnly(typeof(PlayerInput));
@@ -726,7 +732,7 @@ internal class RespawnSystem : ISystem
 // Save data
 internal class GameSaveData
 {
-    public WorldSnapshot Snapshot { get; set; } = null!;
+    public byte[] Snapshot { get; set; } = null!;
     public uint[] PlayerIds { get; set; } = null!;
     public uint[] EnemyIds { get; set; } = null!;
     public uint[] ItemIds { get; set; } = null!;

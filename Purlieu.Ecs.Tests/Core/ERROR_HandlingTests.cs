@@ -31,20 +31,20 @@ public class ERROR_HandlingTests
         
         // Act & Assert - AddComponent
         var addEx = Assert.Throws<EntityNotFoundException>(() => 
-            _world.AddComponent(invalidEntity, new Position(1, 2, 3)));
+            _world.AddComponent(invalidEntity, new Purlieu.Logic.Components.Position(1, 2, 3)));
         
         Assert.That(addEx.EntityId, Is.EqualTo(999u));
         Assert.That(addEx.Message, Does.Contain("non-existent entity"));
         
         // Act & Assert - RemoveComponent
         var removeEx = Assert.Throws<EntityNotFoundException>(() => 
-            _world.RemoveComponent<Position>(invalidEntity));
+            _world.RemoveComponent<Purlieu.Logic.Components.Position>(invalidEntity));
         
         Assert.That(removeEx.EntityId, Is.EqualTo(999u));
         
         // Act & Assert - GetComponent
         var getEx = Assert.Throws<EntityNotFoundException>(() => 
-            _world.GetComponent<Position>(invalidEntity));
+            _world.GetComponent<Purlieu.Logic.Components.Position>(invalidEntity));
         
         Assert.That(getEx.EntityId, Is.EqualTo(999u));
         
@@ -66,10 +66,10 @@ public class ERROR_HandlingTests
         
         // Act & Assert - GetComponent for non-existent component
         var ex = Assert.Throws<ComponentException>(() => 
-            _world.GetComponent<Position>(entity));
+            _world.GetComponent<Purlieu.Logic.Components.Position>(entity));
         
         Assert.That(ex.EntityId, Is.EqualTo(entity.Id));
-        Assert.That(ex.ComponentType, Is.EqualTo(typeof(Position)));
+        Assert.That(ex.ComponentType, Is.EqualTo(typeof(Purlieu.Logic.Components.Position)));
         Assert.That(ex.Message, Does.Contain("does not have component"));
     }
     
@@ -80,7 +80,7 @@ public class ERROR_HandlingTests
         var invalidEntity = new Entity(999, 1);
         
         // Act - HasComponent should return false for invalid entity instead of throwing
-        var hasComponent = _world.HasComponent<Position>(invalidEntity);
+        var hasComponent = _world.HasComponent<Purlieu.Logic.Components.Position>(invalidEntity);
         
         // Assert
         Assert.That(hasComponent, Is.False);
@@ -98,8 +98,8 @@ public class ERROR_HandlingTests
     {
         // This test verifies the exception handling pattern
         // In practice, component registration rarely fails
-        Assert.DoesNotThrow(() => _world.RegisterComponent<Position>());
-        Assert.DoesNotThrow(() => _world.RegisterComponent<Velocity>());
+        Assert.DoesNotThrow(() => _world.RegisterComponent<Purlieu.Logic.Components.Position>());
+        Assert.DoesNotThrow(() => _world.RegisterComponent<Purlieu.Logic.Components.Velocity>());
     }
     
     [Test]
@@ -113,7 +113,7 @@ public class ERROR_HandlingTests
         // Act
         try
         {
-            _world.AddComponent(invalidEntity, new Position(1, 2, 3));
+            _world.AddComponent(invalidEntity, new Purlieu.Logic.Components.Position(1, 2, 3));
         }
         catch (EntityNotFoundException)
         {
@@ -141,7 +141,7 @@ public class ERROR_HandlingTests
         
         // Act & Assert
         var ex = Assert.Throws<EntityNotFoundException>(() => 
-            _world.GetComponent<Position>(invalidEntity));
+            _world.GetComponent<Purlieu.Logic.Components.Position>(invalidEntity));
         
         // The inner exception should be preserved in more complex scenarios
         Assert.That(ex.EntityId, Is.EqualTo(999u));
@@ -161,16 +161,16 @@ public class ERROR_HandlingTests
         var entity = _world.CreateEntity();
         
         // Act - Normal operations should still work fine
-        Assert.DoesNotThrow(() => _world.AddComponent(entity, new Position(1, 2, 3)));
-        Assert.DoesNotThrow(() => _world.AddComponent(entity, new Velocity(4, 5, 6)));
+        Assert.DoesNotThrow(() => _world.AddComponent(entity, new Purlieu.Logic.Components.Position(1, 2, 3)));
+        Assert.DoesNotThrow(() => _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(4, 5, 6)));
         
-        var position = _world.GetComponent<Position>(entity);
-        var velocity = _world.GetComponent<Velocity>(entity);
+        var position = _world.GetComponent<Purlieu.Logic.Components.Position>(entity);
+        var velocity = _world.GetComponent<Purlieu.Logic.Components.Velocity>(entity);
         
         // Assert
         Assert.That(position.X, Is.EqualTo(1f));
         Assert.That(velocity.X, Is.EqualTo(4f));
-        Assert.That(_world.HasComponent<Position>(entity), Is.True);
+        Assert.That(_world.HasComponent<Purlieu.Logic.Components.Position>(entity), Is.True);
         Assert.That(_world.HasComponent<Health>(entity), Is.False);
         
         // Should not have any error messages for successful operations
@@ -224,14 +224,14 @@ public class ERROR_HandlingTests
     {
         // Arrange
         var entity = _world.CreateEntity();
-        _world.AddComponent(entity, new Position(1, 2, 3));
+        _world.AddComponent(entity, new Purlieu.Logic.Components.Position(1, 2, 3));
         _testLogger.Clear();
         
         // Act - Add same component again (should be handled gracefully)
-        Assert.DoesNotThrow(() => _world.AddComponent(entity, new Position(4, 5, 6)));
+        Assert.DoesNotThrow(() => _world.AddComponent(entity, new Purlieu.Logic.Components.Position(4, 5, 6)));
         
         // Remove non-existent component (should be handled gracefully)
-        Assert.DoesNotThrow(() => _world.RemoveComponent<Velocity>(entity));
+        Assert.DoesNotThrow(() => _world.RemoveComponent<Purlieu.Logic.Components.Velocity>(entity));
         
         // Assert - No errors should be logged for graceful handling
         var errorMessages = _testLogger.LoggedMessages

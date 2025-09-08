@@ -1,5 +1,4 @@
 using PurlieuEcs.Core;
-using PurlieuEcs.Systems;
 using System.Collections.Concurrent;
 
 namespace Purlieu.Ecs.Tests.Integration;

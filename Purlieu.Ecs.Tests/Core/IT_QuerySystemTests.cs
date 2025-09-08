@@ -2,7 +2,6 @@ using NUnit.Framework;
 using PurlieuEcs.Components;
 using PurlieuEcs.Core;
 using PurlieuEcs.Events;
-using PurlieuEcs.Systems;
 using Purlieu.Logic.Components;
 using Purlieu.Logic.Events;
 using Purlieu.Logic.Systems;
@@ -22,6 +21,12 @@ public class IT_QuerySystemTests
         _world = new World();
         LogicBootstrap.RegisterComponents(_world);
         _scheduler = new SystemScheduler();
+    }
+    
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
     }
     
     [Test]
@@ -67,7 +72,7 @@ public class IT_QuerySystemTests
         int eventCount = 0;
         PositionChangedEvent lastEvent = default;
         
-        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
+        _scheduler.ExecutePhase(SystemPhase.Update, _world, 0.016f);
         
         eventChannel.ConsumeAll(e => 
         {
@@ -95,7 +100,7 @@ public class IT_QuerySystemTests
         _world.AddComponent(entity, new MoveIntent(5, -3, 0));
         _world.AddComponent(entity, new Stunned());
         
-        _scheduler.UpdatePhase(_world, 0.016f, GamePhases.Update);
+        _scheduler.ExecutePhase(SystemPhase.Update, _world, 0.016f);
         
         var eventChannel = _world.Events<PositionChangedIntent>();
         int eventCount = 0;

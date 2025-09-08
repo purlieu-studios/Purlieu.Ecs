@@ -23,20 +23,26 @@ public class SIMD_ExtendedTests
         LogicBootstrap.RegisterComponents(_world);
     }
 
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+
     [Test]
     public void SIMD_ChunkAlignment_ProperBoundaries()
     {
         // Test that chunks are properly aligned for SIMD operations
         CreateTestEntities(512); // Full chunk
         
-        var query = _world.Query().With<Position>().With<Velocity>();
+        var query = _world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>();
         
         foreach (var chunk in query.ChunksStack())
         {
-            if (chunk.IsSimdSupported<Position>())
+            if (chunk.IsSimdSupported<Purlieu.Logic.Components.Position>())
             {
-                var positions = chunk.GetSpan<Position>();
-                var velocities = chunk.GetSpan<Velocity>();
+                var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+                var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
                 
                 // Test that spans are properly aligned
                 Assert.That(positions.Length, Is.EqualTo(velocities.Length),
@@ -64,15 +70,15 @@ public class SIMD_ExtendedTests
         // Test that SIMD operations produce correct results
         CreateTestEntities(256);
         
-        var query = _world.Query().With<Position>().With<Velocity>();
+        var query = _world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>();
         
         float scalarSum = 0;
         float simdSum = 0;
         
         foreach (var chunk in query.ChunksStack())
         {
-            var positions = chunk.GetSpan<Position>();
-            var velocities = chunk.GetSpan<Velocity>();
+            var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+            var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
             
             // Scalar version
             for (int i = 0; i < positions.Length; i++)
@@ -81,7 +87,7 @@ public class SIMD_ExtendedTests
             }
             
             // SIMD version (if supported)
-            if (Vector.IsHardwareAccelerated && chunk.IsSimdSupported<Position>())
+            if (Vector.IsHardwareAccelerated && chunk.IsSimdSupported<Purlieu.Logic.Components.Position>())
             {
                 // Simulate SIMD operations
                 for (int i = 0; i < positions.Length; i++)
@@ -117,16 +123,16 @@ public class SIMD_ExtendedTests
             for (int i = 0; i < size; i++)
             {
                 var entity = world.CreateEntity();
-                world.AddComponent(entity, new Position(i, i, i));
-                world.AddComponent(entity, new Velocity(1, 1, 1));
+                world.AddComponent(entity, new Purlieu.Logic.Components.Position(i, i, i));
+                world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(1, 1, 1));
             }
             
-            var query = world.Query().With<Position>().With<Velocity>();
+            var query = world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>();
             
             foreach (var chunk in query.ChunksStack())
             {
-                var positions = chunk.GetSpan<Position>();
-                var velocities = chunk.GetSpan<Velocity>();
+                var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+                var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
                 
                 // Test that we can safely access all elements without using lambdas
                 bool accessSuccess = true;
@@ -160,12 +166,12 @@ public class SIMD_ExtendedTests
         }
         
         CreateTestEntities(5000);
-        var query = _world.Query().With<Position>().With<Velocity>();
+        var query = _world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>();
         
         // Warm up
         foreach (var chunk in query.ChunksStack())
         {
-            var positions = chunk.GetSpan<Position>();
+            var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
             for (int i = 0; i < positions.Length; i++)
             {
                 _ = positions[i].X;
@@ -179,8 +185,8 @@ public class SIMD_ExtendedTests
         {
             foreach (var chunk in query.ChunksStack())
             {
-                var positions = chunk.GetSpan<Position>();
-                var velocities = chunk.GetSpan<Velocity>();
+                var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+                var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
                 
                 for (int i = 0; i < positions.Length; i++)
                 {
@@ -197,10 +203,10 @@ public class SIMD_ExtendedTests
         {
             foreach (var chunk in query.ChunksStack())
             {
-                if (chunk.IsSimdSupported<Position>())
+                if (chunk.IsSimdSupported<Purlieu.Logic.Components.Position>())
                 {
-                    var positions = chunk.GetSpan<Position>();
-                    var velocities = chunk.GetSpan<Velocity>();
+                    var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+                    var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
                     
                     // SIMD-friendly loop
                     for (int i = 0; i < positions.Length; i++)
@@ -236,7 +242,7 @@ public class SIMD_ExtendedTests
             processedChunks++;
             processedEntities += chunk.Count;
             
-            var positions = chunk.GetSpan<Position>();
+            var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
             var velocities = chunk.GetSpan<Velocity>();
             
             // Basic operations should work on all platforms
@@ -286,7 +292,7 @@ public class SIMD_ExtendedTests
         // Pre-warm to eliminate cold start allocations
         foreach (var chunk in query.ChunksStack())
         {
-            var positions = chunk.GetSpan<Position>();
+            var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
             _ = positions.Length;
         }
         
@@ -302,10 +308,10 @@ public class SIMD_ExtendedTests
         {
             foreach (var chunk in query.ChunksStack())
             {
-                if (chunk.IsSimdSupported<Position>())
+                if (chunk.IsSimdSupported<Purlieu.Logic.Components.Position>())
                 {
-                    var positions = chunk.GetSpan<Position>();
-                    var velocities = chunk.GetSpan<Velocity>();
+                    var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
+                    var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
                     
                     for (int i = 0; i < Math.Min(positions.Length, 100); i++)
                     {
@@ -330,8 +336,8 @@ public class SIMD_ExtendedTests
         for (int i = 0; i < count; i++)
         {
             var entity = _world.CreateEntity();
-            _world.AddComponent(entity, new Position(i, i, i));
-            _world.AddComponent(entity, new Velocity(1, 1, 1));
+            _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i, i, i));
+            _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(1, 1, 1));
         }
     }
 }

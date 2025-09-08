@@ -3,6 +3,8 @@ using PurlieuEcs.Core;
 using PurlieuEcs.Components;
 using System.Diagnostics;
 using Purlieu.Logic.Components;
+using Position = Purlieu.Logic.Components.Position;
+using Velocity = Purlieu.Logic.Components.Velocity;
 
 namespace Purlieu.Ecs.Tests.Core;
 
@@ -28,7 +30,7 @@ public class IT_OptimizationIntegrationTests
             if (i % 2 == 0) world.AddComponent(entity, new TestComponentA { Value = i });
             if (i % 3 == 0) world.AddComponent(entity, new TestComponentB { Data = i * 0.5f });
             if (i % 5 == 0) world.AddComponent(entity, new TestComponentC { Flag = true });
-            if (i % 7 == 0) world.AddComponent(entity, new Position(i, i, 0));
+            if (i % 7 == 0) world.AddComponent(entity, new Purlieu.Logic.Components.Position(i, i, 0));
             if (i % 11 == 0) world.AddComponent(entity, new MoveIntent(1, 1, 0));
         }
         
@@ -79,7 +81,7 @@ public class IT_OptimizationIntegrationTests
             world.AddComponent(entity, new TestComponentA { Value = i * 1000 });
             world.AddComponent(entity, new TestComponentB { Data = i * 1000.0f });
             world.AddComponent(entity, new TestComponentC { Flag = i % 2 == 0 });
-            world.AddComponent(entity, new Position(i * 100, i * 100, 0));
+            world.AddComponent(entity, new Purlieu.Logic.Components.Position(i * 100, i * 100, 0));
             world.AddComponent(entity, new MoveIntent(i, i, 0));
             world.AddComponent(entity, new Stunned());
         }

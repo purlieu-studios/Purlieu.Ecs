@@ -1,5 +1,4 @@
 using PurlieuEcs.Core;
-using PurlieuEcs.Systems;
 using PurlieuEcs.Snapshot;
 using System.Runtime.CompilerServices;
 
@@ -16,7 +15,8 @@ public class PERF_NoBoxingTests
     
     private class TestSystem : ISystem
     {
-        public void Update(World world, float deltaTime) { }
+        public void Execute(World world, float deltaTime) { }
+        public SystemDependencies GetDependencies() => new SystemDependencies();
     }
     
     [Test]

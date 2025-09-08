@@ -34,7 +34,7 @@ public class DET_VerificationTests
     {
         // Arrange & Act - Run identical operations multiple times
         const int runCount = 5;
-        var snapshots = new List<WorldSnapshot>();
+        var snapshots = new List<byte[]>();
         var hashes = new List<string>();
 
         for (int run = 0; run < runCount; run++)
@@ -45,7 +45,8 @@ public class DET_VerificationTests
             PerformDeterministicOperations(world, seed: 42);
             
             // Capture snapshot and hash
-            var snapshot = world.CreateSnapshot();
+            var snapshotResult = WorldSnapshot.Save(world);
+            var snapshot = snapshotResult.Value;
             snapshots.Add(snapshot);
             hashes.Add(ComputeSnapshotHash(snapshot));
             
@@ -79,17 +80,17 @@ public class DET_VerificationTests
         // World 1: Create entities then add components
         var e1a = world1.CreateEntity();
         var e1b = world1.CreateEntity();
-        world1.AddComponent(e1a, new TestComponent1 { Value = 100 });
-        world1.AddComponent(e1b, new TestComponent2 { Value = 200 });
+        world1.AddComponent(e1a, new DetTestComponent1 { Value = 100 });
+        world1.AddComponent(e1b, new DetTestComponent2 { Value = 200 });
 
         // World 2: Interleave entity creation and component addition
         var e2a = world2.CreateEntity();
-        world2.AddComponent(e2a, new TestComponent1 { Value = 100 });
+        world2.AddComponent(e2a, new DetTestComponent1 { Value = 100 });
         var e2b = world2.CreateEntity();
-        world2.AddComponent(e2b, new TestComponent2 { Value = 200 });
+        world2.AddComponent(e2b, new DetTestComponent2 { Value = 200 });
 
-        var snapshot1 = world1.CreateSnapshot();
-        var snapshot2 = world2.CreateSnapshot();
+        var snapshot1 = WorldSnapshot.Save(world1).Value;
+        var snapshot2 = WorldSnapshot.Save(world2).Value;
         
         var hash1 = ComputeSnapshotHash(snapshot1);
         var hash2 = ComputeSnapshotHash(snapshot2);
@@ -110,14 +111,14 @@ public class DET_VerificationTests
         PerformDeterministicOperations(_world, seed: 12345);
         
         // Act - Create snapshot and restore to new world
-        var originalSnapshot = _world.CreateSnapshot();
+        var originalSnapshot = WorldSnapshot.Save(_world).Value;
         var originalHash = ComputeSnapshotHash(originalSnapshot);
         
         var restoredWorld = new World();
-        restoredWorld.RestoreSnapshot(originalSnapshot);
+        WorldSnapshot.Load(restoredWorld, originalSnapshot);
         
         // Verify restored world produces identical snapshot
-        var restoredSnapshot = restoredWorld.CreateSnapshot();
+        var restoredSnapshot = WorldSnapshot.Save(restoredWorld).Value;
         var restoredHash = ComputeSnapshotHash(restoredSnapshot);
 
         // Assert
@@ -127,7 +128,7 @@ public class DET_VerificationTests
         AssertSnapshotsEqual(originalSnapshot, restoredSnapshot, "Restored");
         
         // Verify world functionality after restore
-        var query = restoredWorld.Query().With<TestComponent1>();
+        var query = restoredWorld.Query().With<DetTestComponent1>();
         Assert.That(() => query.Count(), Throws.Nothing, 
                    "Restored world should be fully functional");
 
@@ -175,11 +176,11 @@ public class DET_VerificationTests
                         
                         // Deterministic component addition based on index
                         if (index % 2 == 0)
-                            world.AddComponent(entity, new TestComponent1 { Value = index });
+                            world.AddComponent(entity, new DetTestComponent1 { Value = index });
                         if (index % 3 == 0)
-                            world.AddComponent(entity, new TestComponent2 { Value = index * 2 });
+                            world.AddComponent(entity, new DetTestComponent2 { Value = index * 2 });
                         if (index % 5 == 0)
-                            world.AddComponent(entity, new TestComponent3 { Value = index * 3 });
+                            world.AddComponent(entity, new DetTestComponent3 { Value = index * 3 });
                     }
                 });
             }
@@ -189,7 +190,8 @@ public class DET_VerificationTests
             // Sort entities by ID for deterministic snapshot
             Array.Sort(entities, (a, b) => a.Id.CompareTo(b.Id));
             
-            var snapshot = world.CreateSnapshot();
+            var snapshotResult = WorldSnapshot.Save(world);
+            var snapshot = snapshotResult.Value;
             hashes.Add(ComputeSnapshotHash(snapshot));
             
             world.Dispose();
@@ -237,7 +239,8 @@ public class DET_VerificationTests
             }
 
             // Capture final state
-            var snapshot = world.CreateSnapshot();
+            var snapshotResult = WorldSnapshot.Save(world);
+            var snapshot = snapshotResult.Value;
             hashes.Add(ComputeSnapshotHash(snapshot));
             
             world.Dispose();
@@ -268,9 +271,8 @@ public class DET_VerificationTests
             // Perform many floating-point operations
             for (int i = 0; i < iterations; i++)
             {
-                var value = world.GetComponent<TestFloatComponent>(entity);
+                ref var value = ref world.GetComponent<TestFloatComponent>(entity);
                 value.Value = (value.Value * 1.0001f) + 0.001f;
-                world.SetComponent(entity, value);
             }
 
             var finalValue = world.GetComponent<TestFloatComponent>(entity).Value;
@@ -310,20 +312,20 @@ public class DET_VerificationTests
                 switch (i % 7)
                 {
                     case 0:
-                        world.AddComponent(entity, new TestComponent1 { Value = i });
+                        world.AddComponent(entity, new DetTestComponent1 { Value = i });
                         break;
                     case 1:
-                        world.AddComponent(entity, new TestComponent1 { Value = i });
-                        world.AddComponent(entity, new TestComponent2 { Value = i * 2 });
+                        world.AddComponent(entity, new DetTestComponent1 { Value = i });
+                        world.AddComponent(entity, new DetTestComponent2 { Value = i * 2 });
                         break;
                     case 2:
-                        world.AddComponent(entity, new TestComponent2 { Value = i * 2 });
-                        world.AddComponent(entity, new TestComponent3 { Value = i * 3 });
+                        world.AddComponent(entity, new DetTestComponent2 { Value = i * 2 });
+                        world.AddComponent(entity, new DetTestComponent3 { Value = i * 3 });
                         break;
                     case 3:
-                        world.AddComponent(entity, new TestComponent1 { Value = i });
-                        world.AddComponent(entity, new TestComponent2 { Value = i * 2 });
-                        world.AddComponent(entity, new TestComponent3 { Value = i * 3 });
+                        world.AddComponent(entity, new DetTestComponent1 { Value = i });
+                        world.AddComponent(entity, new DetTestComponent2 { Value = i * 2 });
+                        world.AddComponent(entity, new DetTestComponent3 { Value = i * 3 });
                         break;
                 }
             }
@@ -333,14 +335,15 @@ public class DET_VerificationTests
             {
                 var entity = entities[i];
                 
-                if (i % 3 == 0 && world.HasComponent<TestComponent1>(entity))
-                    world.RemoveComponent<TestComponent1>(entity);
+                if (i % 3 == 0 && world.HasComponent<DetTestComponent1>(entity))
+                    world.RemoveComponent<DetTestComponent1>(entity);
                     
                 if (i % 5 == 0)
-                    world.AddComponent(entity, new TestComponent3 { Value = i * 5 });
+                    world.AddComponent(entity, new DetTestComponent3 { Value = i * 5 });
             }
 
-            var snapshot = world.CreateSnapshot();
+            var snapshotResult = WorldSnapshot.Save(world);
+            var snapshot = snapshotResult.Value;
             hashes.Add(ComputeSnapshotHash(snapshot));
             
             world.Dispose();
@@ -372,29 +375,28 @@ public class DET_VerificationTests
             var value = random.Next(1000);
             
             if (value % 2 == 0)
-                world.AddComponent(entity, new TestComponent1 { Value = value });
+                world.AddComponent(entity, new DetTestComponent1 { Value = value });
             if (value % 3 == 0)
-                world.AddComponent(entity, new TestComponent2 { Value = value * 2 });
+                world.AddComponent(entity, new DetTestComponent2 { Value = value * 2 });
             if (value % 5 == 0)
-                world.AddComponent(entity, new TestComponent3 { Value = value * 3 });
+                world.AddComponent(entity, new DetTestComponent3 { Value = value * 3 });
         }
 
         // Perform some modifications
         for (int i = 0; i < entities.Count / 2; i++)
         {
-            if (world.HasComponent<TestComponent1>(entities[i]))
+            if (world.HasComponent<DetTestComponent1>(entities[i]))
             {
-                var comp = world.GetComponent<TestComponent1>(entities[i]);
+                ref var comp = ref world.GetComponent<DetTestComponent1>(entities[i]);
                 comp.Value += 100;
-                world.SetComponent(entities[i], comp);
             }
         }
 
         // Remove some components
         for (int i = entities.Count / 3; i < entities.Count / 2; i++)
         {
-            if (world.HasComponent<TestComponent2>(entities[i]))
-                world.RemoveComponent<TestComponent2>(entities[i]);
+            if (world.HasComponent<DetTestComponent2>(entities[i]))
+                world.RemoveComponent<DetTestComponent2>(entities[i]);
         }
 
         // Destroy some entities
@@ -404,67 +406,32 @@ public class DET_VerificationTests
         }
     }
 
-    private string ComputeSnapshotHash(WorldSnapshot snapshot)
+    private string ComputeSnapshotHash(byte[] snapshotData)
     {
         using var sha256 = SHA256.Create();
-        var builder = new StringBuilder();
-        
-        // Hash entity data
-        builder.Append($"Entities:{snapshot.Entities.Length}|");
-        foreach (var entity in snapshot.Entities.OrderBy(e => e.Id))
-        {
-            builder.Append($"{entity.Id}:{entity.Generation}|");
-        }
-        
-        // Hash archetype data
-        builder.Append($"Archetypes:{snapshot.Archetypes.Length}|");
-        foreach (var archetype in snapshot.Archetypes.OrderBy(a => a.Id))
-        {
-            builder.Append($"A{archetype.Id}:E{archetype.EntityIds.Length}|");
-            foreach (var entityId in archetype.EntityIds.OrderBy(id => id))
-            {
-                builder.Append($"{entityId}|");
-            }
-        }
-        
-        var bytes = Encoding.UTF8.GetBytes(builder.ToString());
-        var hash = sha256.ComputeHash(bytes);
+        var hash = sha256.ComputeHash(snapshotData);
         return Convert.ToBase64String(hash);
     }
 
-    private void AssertSnapshotsEqual(WorldSnapshot expected, WorldSnapshot actual, string context)
+    private void AssertSnapshotsEqual(byte[] expected, byte[] actual, string context)
     {
-        Assert.That(actual.Entities.Length, Is.EqualTo(expected.Entities.Length), 
-                   $"{context}: Entity count mismatch");
-        Assert.That(actual.Archetypes.Length, Is.EqualTo(expected.Archetypes.Length), 
-                   $"{context}: Archetype count mismatch");
-        
-        // Compare entities
-        var expectedEntities = expected.Entities.OrderBy(e => e.Id).ToArray();
-        var actualEntities = actual.Entities.OrderBy(e => e.Id).ToArray();
-        
-        for (int i = 0; i < expectedEntities.Length; i++)
-        {
-            Assert.That(actualEntities[i].Id, Is.EqualTo(expectedEntities[i].Id), 
-                       $"{context}: Entity ID mismatch at index {i}");
-            Assert.That(actualEntities[i].Generation, Is.EqualTo(expectedEntities[i].Generation), 
-                       $"{context}: Entity generation mismatch at index {i}");
-        }
+        Assert.That(actual.Length, Is.EqualTo(expected.Length), $"{context}: Snapshot length mismatch");
+        Assert.That(actual, Is.EqualTo(expected), $"{context}: Snapshot content mismatch");
     }
 }
 
 // Test Components
-internal struct TestComponent1
+internal struct DetTestComponent1
 {
     public int Value;
 }
 
-internal struct TestComponent2
+internal struct DetTestComponent2
 {
     public int Value;
 }
 
-internal struct TestComponent3
+internal struct DetTestComponent3
 {
     public int Value;
 }

@@ -22,28 +22,34 @@ public class GAME_ScenarioTests
         LogicBootstrap.RegisterComponents(_world);
     }
 
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+
     [Test]
     public void RPGCombatScenario_ManyEntitiesWithVariedComponents()
     {
         // Simulate RPG combat: 200 players, 500 monsters, 100 projectiles
         var players = CreateEntitiesWithComponents(200, "Player", 
             (entity, i) => {
-                _world.AddComponent(entity, new Position(i * 10, 0, 0));
-                _world.AddComponent(entity, new Velocity(0, 0, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i * 10, 0, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(0, 0, 0));
                 // Players have more complex component combinations
             });
 
         var monsters = CreateEntitiesWithComponents(500, "Monster",
             (entity, i) => {
-                _world.AddComponent(entity, new Position(i * 5, 100, 0));
-                _world.AddComponent(entity, new Velocity(1, 0, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i * 5, 100, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(1, 0, 0));
                 if (i % 3 == 0) _world.AddComponent(entity, new Stunned());
             });
 
         var projectiles = CreateEntitiesWithComponents(100, "Projectile", 
             (entity, i) => {
-                _world.AddComponent(entity, new Position(i, i, 0));
-                _world.AddComponent(entity, new Velocity(5, 0, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i, i, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(5, 0, 0));
             });
 
         // Test queries that would be common in combat system
@@ -61,8 +67,8 @@ public class GAME_ScenarioTests
         // Simulate RTS: 1000 units, 500 buildings, 200 resources
         var units = CreateEntitiesWithComponents(1000, "Unit",
             (entity, i) => {
-                _world.AddComponent(entity, new Position(i % 100, i / 100, 0));
-                _world.AddComponent(entity, new Velocity(
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i % 100, i / 100, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(
                     (i % 3) - 1, // -1, 0, or 1
                     (i % 5) - 2, // -2, -1, 0, 1, 2  
                     0));
@@ -70,13 +76,13 @@ public class GAME_ScenarioTests
 
         var buildings = CreateEntitiesWithComponents(500, "Building",
             (entity, i) => {
-                _world.AddComponent(entity, new Position(i % 50 * 20, i / 50 * 20, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i % 50 * 20, i / 50 * 20, 0));
                 // Buildings don't move
             });
 
         var resources = CreateEntitiesWithComponents(200, "Resource",
             (entity, i) => {
-                _world.AddComponent(entity, new Position(
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Position(
                     Random.Shared.Next(2000), 
                     Random.Shared.Next(2000), 
                     0));
@@ -96,13 +102,13 @@ public class GAME_ScenarioTests
     {
         // Simulate platformer: player + enemies with frequent state changes
         var player = _world.CreateEntity();
-        _world.AddComponent(player, new Position(0, 0, 0));
-        _world.AddComponent(player, new Velocity(0, 0, 0));
+        _world.AddComponent(player, new Purlieu.Logic.Components.Position(0, 0, 0));
+        _world.AddComponent(player, new Purlieu.Logic.Components.Velocity(0, 0, 0));
 
         var enemies = CreateEntitiesWithComponents(50, "Enemy",
             (entity, i) => {
-                _world.AddComponent(entity, new Position(i * 32, 100, 0));
-                _world.AddComponent(entity, new Velocity(1, 0, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i * 32, 100, 0));
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(1, 0, 0));
             });
 
         // Simulate frequent state changes (stunning, movement changes)
@@ -126,7 +132,7 @@ public class GAME_ScenarioTests
             }
 
             // Test queries each frame
-            var activeEnemies = _world.Query().With<Position>().With<Velocity>().Without<Stunned>().Count();
+            var activeEnemies = _world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>().Without<Stunned>().Count();
             var stunnedEnemies = _world.Query().With<Stunned>().Count();
             
             Assert.That(activeEnemies + stunnedEnemies, Is.LessThanOrEqualTo(50),
@@ -142,14 +148,14 @@ public class GAME_ScenarioTests
         // Simulate MMO zone: 5000 entities spread across large area
         var entities = CreateEntitiesWithComponents(5000, "MMOEntity",
             (entity, i) => {
-                _world.AddComponent(entity, new Position(
+                _world.AddComponent(entity, new Purlieu.Logic.Components.Position(
                     Random.Shared.Next(10000),  // Large world: 10k x 10k
                     Random.Shared.Next(10000),
                     Random.Shared.Next(1000)));
                     
                 if (i % 3 == 0) // 1/3 are moving
                 {
-                    _world.AddComponent(entity, new Velocity(
+                    _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(
                         Random.Shared.Next(-5, 6),
                         Random.Shared.Next(-5, 6),
                         0));
@@ -167,9 +173,9 @@ public class GAME_ScenarioTests
         long before = GC.GetTotalMemory(false);
         
         // Simulate multiple system queries per frame
-        var allEntities = _world.Query().With<Position>().Count();
-        var movingEntities = _world.Query().With<Position>().With<Velocity>().Count();
-        var staticEntities = _world.Query().With<Position>().Without<Velocity>().Count();
+        var allEntities = _world.Query().With<Purlieu.Logic.Components.Position>().Count();
+        var movingEntities = _world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>().Count();
+        var staticEntities = _world.Query().With<Purlieu.Logic.Components.Position>().Without<Purlieu.Logic.Components.Velocity>().Count();
         
         long after = GC.GetTotalMemory(false);
         var allocated = after - before;
@@ -186,12 +192,12 @@ public class GAME_ScenarioTests
         // Create many different archetype combinations to stress archetype matching
         var archetypePatterns = new[]
         {
-            new System.Type[] { typeof(Position) },
-            new System.Type[] { typeof(Position), typeof(Velocity) },
-            new System.Type[] { typeof(Position), typeof(Stunned) },
-            new System.Type[] { typeof(Position), typeof(Velocity), typeof(Stunned) },
-            new System.Type[] { typeof(Velocity) },
-            new System.Type[] { typeof(Velocity), typeof(Stunned) },
+            new System.Type[] { typeof(Purlieu.Logic.Components.Position) },
+            new System.Type[] { typeof(Purlieu.Logic.Components.Position), typeof(Purlieu.Logic.Components.Velocity) },
+            new System.Type[] { typeof(Purlieu.Logic.Components.Position), typeof(Stunned) },
+            new System.Type[] { typeof(Purlieu.Logic.Components.Position), typeof(Purlieu.Logic.Components.Velocity), typeof(Stunned) },
+            new System.Type[] { typeof(Purlieu.Logic.Components.Velocity) },
+            new System.Type[] { typeof(Purlieu.Logic.Components.Velocity), typeof(Stunned) },
             new System.Type[] { typeof(Stunned) }
         };
 
@@ -203,10 +209,10 @@ public class GAME_ScenarioTests
                 var entity = _world.CreateEntity();
                 foreach (var componentType in pattern)
                 {
-                    if (componentType == typeof(Position))
-                        _world.AddComponent(entity, new Position(i, i, i));
-                    else if (componentType == typeof(Velocity))
-                        _world.AddComponent(entity, new Velocity(1, 1, 1));
+                    if (componentType == typeof(Purlieu.Logic.Components.Position))
+                        _world.AddComponent(entity, new Purlieu.Logic.Components.Position(i, i, i));
+                    else if (componentType == typeof(Purlieu.Logic.Components.Velocity))
+                        _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(1, 1, 1));
                     else if (componentType == typeof(Stunned))
                         _world.AddComponent(entity, new Stunned());
                 }
@@ -239,11 +245,11 @@ public class GAME_ScenarioTests
         // Common queries that should work in all scenarios
         var queries = new[]
         {
-            ("All entities with Position", _world.Query().With<Position>()),
-            ("Moving entities", _world.Query().With<Position>().With<Velocity>()),
-            ("Static entities", _world.Query().With<Position>().Without<Velocity>()),
+            ("All entities with Position", _world.Query().With<Purlieu.Logic.Components.Position>()),
+            ("Moving entities", _world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>()),
+            ("Static entities", _world.Query().With<Purlieu.Logic.Components.Position>().Without<Purlieu.Logic.Components.Velocity>()),
             ("Stunned entities", _world.Query().With<Stunned>()),
-            ("Active moving entities", _world.Query().With<Position>().With<Velocity>().Without<Stunned>())
+            ("Active moving entities", _world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>().Without<Stunned>())
         };
 
         foreach (var (description, query) in queries)

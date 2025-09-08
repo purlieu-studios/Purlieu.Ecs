@@ -46,18 +46,18 @@ public class LOGGING_StructuredLoggingTests
         _testLogger.Clear();
         
         // Act - Add component
-        _world.AddComponent(entity, new Position(10, 20, 30));
+        _world.AddComponent(entity, new Purlieu.Logic.Components.Position(10, 20, 30));
         
         // Assert - Component addition logged
         Assert.That(_testLogger.LoggedMessages.Count, Is.EqualTo(1));
         var addMessage = _testLogger.LoggedMessages[0];
         Assert.That(addMessage.Operation, Is.EqualTo(EcsOperation.ComponentAdd));
-        Assert.That(addMessage.ComponentType, Is.EqualTo(nameof(Position)));
+        Assert.That(addMessage.ComponentType, Is.EqualTo("Position"));
         
         _testLogger.Clear();
         
         // Act - Get component
-        var pos = _world.Get<Position>(entity);
+        var pos = _world.Get<Purlieu.Logic.Components.Position>(entity);
         
         // Assert - Component access logged at trace level (if enabled)
         if (_testLogger.MinimumLevel <= LogLevel.Trace)
@@ -68,13 +68,13 @@ public class LOGGING_StructuredLoggingTests
         _testLogger.Clear();
         
         // Act - Remove component
-        _world.RemoveComponent<Position>(entity);
+        _world.RemoveComponent<Purlieu.Logic.Components.Position>(entity);
         
         // Assert - Component removal logged
         Assert.That(_testLogger.LoggedMessages.Count, Is.EqualTo(1));
         var removeMessage = _testLogger.LoggedMessages[0];
         Assert.That(removeMessage.Operation, Is.EqualTo(EcsOperation.ComponentRemove));
-        Assert.That(removeMessage.ComponentType, Is.EqualTo(nameof(Position)));
+        Assert.That(removeMessage.ComponentType, Is.EqualTo("Position"));
     }
     
     [Test]
@@ -85,7 +85,7 @@ public class LOGGING_StructuredLoggingTests
         _testLogger.Clear();
         
         // Act - Add component to trigger archetype transition
-        _world.AddComponent(entity, new Position(0, 0, 0));
+        _world.AddComponent(entity, new Purlieu.Logic.Components.Position(0, 0, 0));
         
         // Assert - Should log component add and archetype transition
         var transitionMessages = _testLogger.LoggedMessages
@@ -160,9 +160,9 @@ public class LOGGING_StructuredLoggingTests
         Assert.DoesNotThrow(() =>
         {
             var entity = worldWithNullLogger.CreateEntity();
-            worldWithNullLogger.AddComponent(entity, new Position(1, 2, 3));
-            var pos = worldWithNullLogger.Get<Position>(entity);
-            worldWithNullLogger.RemoveComponent<Position>(entity);
+            worldWithNullLogger.AddComponent(entity, new Purlieu.Logic.Components.Position(1, 2, 3));
+            var pos = worldWithNullLogger.Get<Purlieu.Logic.Components.Position>(entity);
+            worldWithNullLogger.RemoveComponent<Purlieu.Logic.Components.Position>(entity);
             worldWithNullLogger.DestroyEntity(entity);
         });
         

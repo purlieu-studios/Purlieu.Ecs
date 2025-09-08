@@ -25,6 +25,12 @@ public class PERF_ChunkLookupTests
         }
     }
     
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+    
     [Test]
     public void ChunkLookup_UsesBitOperations_NotDivision()
     {

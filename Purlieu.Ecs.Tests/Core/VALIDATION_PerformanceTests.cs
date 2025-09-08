@@ -1,5 +1,4 @@
 using PurlieuEcs.Core;
-using PurlieuEcs.Common;
 using PurlieuEcs.Validation;
 using System.Diagnostics;
 
@@ -71,14 +70,14 @@ public class VALIDATION_PerformanceTests
         
         // First call (cache miss)
         var stopwatchFirstCall = Stopwatch.StartNew();
-        validator.ValidateComponentType<Position>();
+        validator.ValidateComponentType<Purlieu.Logic.Components.Position>();
         stopwatchFirstCall.Stop();
         
         // Subsequent calls (cache hits)
         var stopwatchCachedCalls = Stopwatch.StartNew();
         for (int i = 0; i < iterations; i++)
         {
-            validator.ValidateComponentType<Position>();
+            validator.ValidateComponentType<Purlieu.Logic.Components.Position>();
         }
         stopwatchCachedCalls.Stop();
         
@@ -108,8 +107,8 @@ public class VALIDATION_PerformanceTests
         // Perform many validation operations
         for (int i = 0; i < 10000; i++)
         {
-            validator.ValidateComponentType<Position>();
-            validator.ValidateComponentType<Velocity>();
+            validator.ValidateComponentType<Purlieu.Logic.Components.Position>();
+            validator.ValidateComponentType<Purlieu.Logic.Components.Velocity>();
             validator.ValidateEntityOperation(EntityOperation.AddComponent, (uint)i, typeof(Position));
             validator.ValidateArchetypeTransition(new[] { typeof(Position) }, new[] { typeof(Position), typeof(Velocity) });
         }
@@ -145,8 +144,8 @@ public class VALIDATION_PerformanceTests
                     for (int i = 0; i < operationsPerThread; i++)
                     {
                         // Mix of cached and uncached operations
-                        validator.ValidateComponentType<Position>();
-                        validator.ValidateComponentType<Velocity>();
+                        validator.ValidateComponentType<Purlieu.Logic.Components.Position>();
+                        validator.ValidateComponentType<Purlieu.Logic.Components.Velocity>();
                         
                         if (i % 10 == 0)
                         {
@@ -190,15 +189,15 @@ public class VALIDATION_PerformanceTests
         // Add components
         for (int i = 0; i < entityCount; i++)
         {
-            world.AddComponent(entities[i], new Position(i, i, i));
-            world.AddComponent(entities[i], new Velocity(i % 10, i % 10, i % 10));
+            world.AddComponent(entities[i], new Purlieu.Logic.Components.Position(i, i, i));
+            world.AddComponent(entities[i], new Purlieu.Logic.Components.Velocity(i % 10, i % 10, i % 10));
         }
         
         // Access components
         for (int i = 0; i < entityCount; i++)
         {
-            var pos = world.GetComponent<Position>(entities[i]);
-            var vel = world.GetComponent<Velocity>(entities[i]);
+            var pos = world.GetComponent<Purlieu.Logic.Components.Position>(entities[i]);
+            var vel = world.GetComponent<Purlieu.Logic.Components.Velocity>(entities[i]);
         }
         
         // Clean up

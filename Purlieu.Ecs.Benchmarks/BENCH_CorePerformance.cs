@@ -7,6 +7,7 @@ using BenchmarkDotNet.Reports;
 using PurlieuEcs.Core;
 using PurlieuEcs.Logging;
 using PurlieuEcs.Monitoring;
+using PurlieuEcs.Query;
 
 namespace Purlieu.Ecs.Benchmarks;
 
@@ -23,8 +24,8 @@ public class BENCH_CorePerformance
 {
     private World _world = null!;
     private Entity[] _entities = null!;
-    private Query _simpleQuery = null!;
-    private Query _complexQuery = null!;
+    private WorldQuery _simpleQuery = null!;
+    private WorldQuery _complexQuery = null!;
 
     [Params(100, 1000, 10000, 100000)]
     public int EntityCount { get; set; }
@@ -39,7 +40,7 @@ public class BENCH_CorePerformance
         for (int i = 0; i < EntityCount; i++)
         {
             _entities[i] = _world.CreateEntity();
-            _world.AddComponent(_entities[i], new Position { X = i, Y = i, Z = i });
+            _world.AddComponent(_entities[i], new BenchPosition { X = i, Y = i, Z = i });
             
             if (i % 2 == 0) _world.AddComponent(_entities[i], new Velocity { X = 1, Y = 1, Z = 1 });
             if (i % 3 == 0) _world.AddComponent(_entities[i], new Health { Value = 100, Max = 100 });
@@ -47,8 +48,8 @@ public class BENCH_CorePerformance
             if (i % 7 == 0) _world.AddComponent(_entities[i], new Tag());
         }
         
-        _simpleQuery = _world.Query().With<Position>();
-        _complexQuery = _world.Query().With<Position>().With<Velocity>().Without<Tag>();
+        _simpleQuery = _world.Query().With<BenchPosition>();
+        _complexQuery = _world.Query().With<BenchPosition>().With<Velocity>().Without<Tag>();
     }
 
     [GlobalCleanup]
@@ -87,7 +88,7 @@ public class BENCH_CorePerformance
     [Benchmark(Description = "Remove Component")]
     public void RemoveComponent()
     {
-        var entity = _entities[0]; // Entity with Position, maybe others
+        var entity = _entities[0]; // Entity with BenchPosition, maybe others
         if (_world.HasComponent<Velocity>(entity))
         {
             _world.RemoveComponent<Velocity>(entity);
@@ -96,16 +97,17 @@ public class BENCH_CorePerformance
     }
 
     [Benchmark(Description = "Get Component")]
-    public Position GetComponent()
+    public BenchPosition GetComponent()
     {
-        return _world.GetComponent<Position>(_entities[EntityCount / 2]);
+        return _world.GetComponent<BenchPosition>(_entities[EntityCount / 2]);
     }
 
     [Benchmark(Description = "Set Component")]
     public void SetComponent()
     {
         var entity = _entities[EntityCount / 2];
-        _world.SetComponent(entity, new Position { X = 100, Y = 200, Z = 300 });
+        ref var pos = ref _world.GetComponent<BenchPosition>(entity);
+        pos.X = 100; pos.Y = 200; pos.Z = 300;
     }
 
     [Benchmark(Description = "Has Component Check")]
@@ -166,11 +168,11 @@ public class BENCH_CorePerformance
     public float QueryWithComponentAccess()
     {
         float sum = 0;
-        var query = _world.Query().With<Position>().With<Velocity>();
+        var query = _world.Query().With<BenchPosition>().With<Velocity>();
         
         foreach (var chunk in query.Chunks())
         {
-            var positions = chunk.GetSpan<Position>();
+            var positions = chunk.GetSpan<BenchPosition>();
             var velocities = chunk.GetSpan<Velocity>();
             
             for (int i = 0; i < chunk.Count; i++)
@@ -206,9 +208,9 @@ public class BENCH_CorePerformance
     // ============= Memory/Allocation Benchmarks =============
 
     [Benchmark(Description = "Query Construction")]
-    public Query QueryConstruction()
+    public WorldQuery QueryConstruction()
     {
-        return _world.Query().With<Position>().With<Velocity>().Without<Health>();
+        return _world.Query().With<BenchPosition>().With<Velocity>().Without<Health>();
     }
 
     [Benchmark(Description = "Chunk Iteration Overhead")]
@@ -227,11 +229,11 @@ public class BENCH_CorePerformance
     [Benchmark(Description = "Parallel Query Processing")]
     public void ParallelQueryProcessing()
     {
-        var query = _world.Query().With<Position>().With<Velocity>();
+        var query = _world.Query().With<BenchPosition>().With<Velocity>();
         
-        Parallel.ForEach(query.Chunks(), chunk =>
+        foreach (var chunk in query.Chunks())
         {
-            var positions = chunk.GetSpan<Position>();
+            var positions = chunk.GetSpan<BenchPosition>();
             var velocities = chunk.GetSpan<Velocity>();
             
             for (int i = 0; i < chunk.Count; i++)
@@ -240,7 +242,7 @@ public class BENCH_CorePerformance
                 positions[i].Y += velocities[i].Y * 0.016f;
                 positions[i].Z += velocities[i].Z * 0.016f;
             }
-        });
+        }
     }
 
     [Benchmark(Description = "Concurrent Entity Creation")]
@@ -282,7 +284,7 @@ public class BENCH_Comparison
         for (int i = 0; i < EntityCount; i++)
         {
             _entities[i] = _world.CreateEntity();
-            _world.AddComponent(_entities[i], new Position { X = i, Y = i, Z = i });
+            _world.AddComponent(_entities[i], new BenchPosition { X = i, Y = i, Z = i });
             if (i % 2 == 0) _world.AddComponent(_entities[i], new Velocity { X = 1, Y = 1, Z = 1 });
         }
         
@@ -306,11 +308,11 @@ public class BENCH_Comparison
     [Benchmark(Baseline = true, Description = "Purlieu: Query & Update")]
     public void PurlieuQueryUpdate()
     {
-        var query = _world.Query().With<Position>().With<Velocity>();
+        var query = _world.Query().With<BenchPosition>().With<Velocity>();
         
         foreach (var chunk in query.Chunks())
         {
-            var positions = chunk.GetSpan<Position>();
+            var positions = chunk.GetSpan<BenchPosition>();
             var velocities = chunk.GetSpan<Velocity>();
             
             for (int i = 0; i < chunk.Count; i++)
@@ -325,19 +327,19 @@ public class BENCH_Comparison
     [Benchmark(Description = "Naive: Dictionary Lookup")]
     public void NaiveDictionaryUpdate()
     {
-        _naiveEcs.UpdatePositions(0.016f);
+        _naiveEcs.UpdateBenchPositions(0.016f);
     }
 
     [Benchmark(Description = "Optimized: Array Iteration")]
     public void OptimizedArrayUpdate()
     {
-        _arrayEcs.UpdatePositions(0.016f);
+        _arrayEcs.UpdateBenchPositions(0.016f);
     }
 }
 
 // ============= Test Components =============
 
-internal struct Position
+public struct BenchPosition
 {
     public float X, Y, Z;
 }
@@ -345,6 +347,11 @@ internal struct Position
 internal struct Velocity
 {
     public float X, Y, Z;
+    
+    public Velocity(float x, float y, float z)
+    {
+        X = x; Y = y; Z = z;
+    }
 }
 
 internal struct Health
@@ -366,11 +373,11 @@ internal class BenchmarkMovementSystem : ISystem
 {
     public void Execute(World world, float deltaTime)
     {
-        var query = world.Query().With<Position>().With<Velocity>();
+        var query = world.Query().With<BenchPosition>().With<Velocity>();
         
         foreach (var chunk in query.Chunks())
         {
-            var positions = chunk.GetSpan<Position>();
+            var positions = chunk.GetSpan<BenchPosition>();
             var velocities = chunk.GetSpan<Velocity>();
             
             for (int i = 0; i < chunk.Count; i++)
@@ -386,7 +393,7 @@ internal class BenchmarkMovementSystem : ISystem
     {
         return SystemDependencies.ReadWrite(
             new[] { typeof(Velocity) },
-            new[] { typeof(Position) }
+            new[] { typeof(BenchPosition) }
         );
     }
 }
@@ -451,14 +458,14 @@ internal class BenchmarkDamageSystem : ISystem
 /// </summary>
 internal class NaiveEcs
 {
-    private readonly Dictionary<int, Position> _positions = new();
+    private readonly Dictionary<int, BenchPosition> _positions = new();
     private readonly Dictionary<int, Velocity> _velocities = new();
     private readonly List<int> _entities = new();
 
     public NaiveEcs(int capacity)
     {
         // Pre-size for fairness
-        _positions = new Dictionary<int, Position>(capacity);
+        _positions = new Dictionary<int, BenchPosition>(capacity);
         _velocities = new Dictionary<int, Velocity>(capacity);
         _entities = new List<int>(capacity);
     }
@@ -466,12 +473,12 @@ internal class NaiveEcs
     public void CreateEntity(int id)
     {
         _entities.Add(id);
-        _positions[id] = new Position { X = id, Y = id, Z = id };
+        _positions[id] = new BenchPosition { X = id, Y = id, Z = id };
         if (id % 2 == 0)
             _velocities[id] = new Velocity { X = 1, Y = 1, Z = 1 };
     }
 
-    public void UpdatePositions(float deltaTime)
+    public void UpdateBenchPositions(float deltaTime)
     {
         foreach (var id in _entities)
         {
@@ -491,7 +498,7 @@ internal class NaiveEcs
 /// </summary>
 internal class OptimizedArrayEcs
 {
-    private readonly Position[] _positions;
+    private readonly BenchPosition[] _positions;
     private readonly Velocity[] _velocities;
     private readonly bool[] _hasVelocity;
     private readonly int _capacity;
@@ -499,14 +506,14 @@ internal class OptimizedArrayEcs
     public OptimizedArrayEcs(int capacity)
     {
         _capacity = capacity;
-        _positions = new Position[capacity];
+        _positions = new BenchPosition[capacity];
         _velocities = new Velocity[capacity];
         _hasVelocity = new bool[capacity];
     }
 
     public void CreateEntity(int id)
     {
-        _positions[id] = new Position { X = id, Y = id, Z = id };
+        _positions[id] = new BenchPosition { X = id, Y = id, Z = id };
         if (id % 2 == 0)
         {
             _velocities[id] = new Velocity { X = 1, Y = 1, Z = 1 };
@@ -514,7 +521,7 @@ internal class OptimizedArrayEcs
         }
     }
 
-    public void UpdatePositions(float deltaTime)
+    public void UpdateBenchPositions(float deltaTime)
     {
         for (int i = 0; i < _capacity; i++)
         {

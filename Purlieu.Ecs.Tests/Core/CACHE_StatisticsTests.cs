@@ -2,6 +2,8 @@ using NUnit.Framework;
 using PurlieuEcs.Core;
 using Purlieu.Logic.Components;
 using Purlieu.Logic;
+using Position = Purlieu.Logic.Components.Position;
+using Velocity = Purlieu.Logic.Components.Velocity;
 
 namespace Purlieu.Ecs.Tests.Core;
 
@@ -24,14 +26,20 @@ public class CACHE_StatisticsTests
         for (int i = 0; i < 100; i++)
         {
             var entity = _world.CreateEntity();
-            _world.AddComponent(entity, new Position(i, i, i));
+            _world.AddComponent(entity, new Position { X = i, Y = i, Z = i });
             
             if (i % 2 == 0)
-                _world.AddComponent(entity, new Velocity(1, 1, 1));
+                _world.AddComponent(entity, new Velocity { X = 1, Y = 1, Z = 1 });
             
             if (i % 3 == 0)
                 _world.AddComponent(entity, new MoveIntent(2, 2, 2));
         }
+    }
+
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
     }
 
     [Test]
@@ -149,7 +157,7 @@ public class CACHE_StatisticsTests
         
         // Create new archetype to trigger cache invalidation
         var entity = _world.CreateEntity();
-        _world.AddComponent(entity, new Position(0, 0, 0));
+        _world.AddComponent(entity, new Position { X = 0, Y = 0, Z = 0 });
         _world.AddComponent(entity, new Stunned()); // This creates a new archetype
         
         var statsAfterInvalidation = _world.GetQueryCacheStatistics();

@@ -1,5 +1,4 @@
 using PurlieuEcs.Core;
-using PurlieuEcs.Systems;
 using System.Collections.Concurrent;
 
 namespace Purlieu.Ecs.Tests.Core;
@@ -229,6 +228,7 @@ public class THREAD_SafetyTests
     
     private class TestSystem : ISystem
     {
-        public void Update(World world, float deltaTime) { }
+        public void Execute(World world, float deltaTime) { }
+        public SystemDependencies GetDependencies() => new SystemDependencies();
     }
 }

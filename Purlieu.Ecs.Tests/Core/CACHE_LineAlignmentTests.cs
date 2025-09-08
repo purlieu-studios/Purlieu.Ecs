@@ -1,8 +1,8 @@
 using NUnit.Framework;
 using PurlieuEcs.Core;
-using Purlieu.Logic.Components;
 using Purlieu.Logic;
 using System.Runtime.CompilerServices;
+// Removed using aliases to avoid conflicts
 
 namespace Purlieu.Ecs.Tests.Core;
 
@@ -22,6 +22,12 @@ public class CACHE_LineAlignmentTests
         LogicBootstrap.RegisterComponents(_world);
     }
 
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+
     [Test]
     public void CacheLineAllocator_SmallCapacity_HandlesCorrectly()
     {
@@ -30,19 +36,19 @@ public class CACHE_LineAlignmentTests
         
         foreach (var capacity in capacities)
         {
-            var aligned = CacheLineAlignedAllocator.AllocateAligned<Position>(capacity);
+            var aligned = CacheLineAlignedAllocator.AllocateAligned<Purlieu.Logic.Components.Position>(capacity);
             
             Assert.That(aligned, Is.Not.Null);
             Assert.That(aligned.Length, Is.GreaterThanOrEqualTo(capacity));
             
             var (elementSize, elementsPerCacheLine, alignedCapacity, overhead) = 
-                CacheLineAlignedAllocator.GetAlignmentInfo<Position>(capacity);
+                CacheLineAlignedAllocator.GetAlignmentInfo<Purlieu.Logic.Components.Position>(capacity);
             
             Console.WriteLine($"Position[{capacity}]: {elementSize}B elements, {elementsPerCacheLine} per cache line, " +
                             $"aligned to {alignedCapacity} (overhead: {overhead:P1})");
             
             // Verify alignment makes sense
-            Assert.That(elementSize, Is.EqualTo(Unsafe.SizeOf<Position>()));
+            Assert.That(elementSize, Is.EqualTo(Unsafe.SizeOf<Purlieu.Logic.Components.Position>()));
             Assert.That(elementsPerCacheLine, Is.GreaterThan(0));
             Assert.That(alignedCapacity, Is.GreaterThanOrEqualTo(capacity));
         }
@@ -54,7 +60,7 @@ public class CACHE_LineAlignmentTests
         const int capacity = 64;
         
         // Test different component types with different sizes
-        TestAlignmentFor<Position>(capacity);        // 12 bytes (3 floats)
+        TestAlignmentFor<Purlieu.Logic.Components.Position>(capacity);        // 12 bytes (3 floats)
         TestAlignmentFor<Velocity>(capacity);        // 12 bytes (3 floats) 
         TestAlignmentFor<TestComponentA>(capacity);  // Larger component
         TestAlignmentFor<Entity>(capacity);          // 8 bytes (2 uint32s)
@@ -89,15 +95,15 @@ public class CACHE_LineAlignmentTests
         for (int i = 0; i < entities.Length; i++)
         {
             entities[i] = _world.CreateEntity();
-            _world.AddComponent(entities[i], new Position(i, i + 1, i + 2));
-            _world.AddComponent(entities[i], new Velocity(i * 0.1f, i * 0.2f, i * 0.3f));
+            _world.AddComponent(entities[i], new Purlieu.Logic.Components.Position(i, i + 1, i + 2));
+            _world.AddComponent(entities[i], new Purlieu.Logic.Components.Velocity(i * 0.1f, i * 0.2f, i * 0.3f));
         }
         
         // Verify data integrity after alignment
         for (int i = 0; i < entities.Length; i++)
         {
-            var pos = _world.GetComponent<Position>(entities[i]);
-            var vel = _world.GetComponent<Velocity>(entities[i]);
+            var pos = _world.GetComponent<Purlieu.Logic.Components.Position>(entities[i]);
+            var vel = _world.GetComponent<Purlieu.Logic.Components.Velocity>(entities[i]);
             
             Assert.That(pos.X, Is.EqualTo(i).Within(0.001f));
             Assert.That(pos.Y, Is.EqualTo(i + 1).Within(0.001f));
@@ -117,7 +123,7 @@ public class CACHE_LineAlignmentTests
         // Test that cache-line alignment doesn't create excessive overhead
         var testCases = new[]
         {
-            (typeof(Position), 64),   // 12 bytes each
+            (typeof(Purlieu.Logic.Components.Position), 64),   // 12 bytes each
             (typeof(Velocity), 128),  // 12 bytes each
             (typeof(Entity), 256),    // 8 bytes each
             (typeof(float), 512),     // 4 bytes each
@@ -141,8 +147,8 @@ public class CACHE_LineAlignmentTests
     
     private static int GetElementSize(Type type)
     {
-        if (type == typeof(Position)) return 12;
-        if (type == typeof(Velocity)) return 12;
+        if (type == typeof(Purlieu.Logic.Components.Position)) return 12;
+        if (type == typeof(Purlieu.Logic.Components.Velocity)) return 12;
         if (type == typeof(Entity)) return 8;
         if (type == typeof(float)) return 4;
         if (type == typeof(int)) return 4;
@@ -153,10 +159,10 @@ public class CACHE_LineAlignmentTests
     public void ChunkCreation_UsesAlignedStorage()
     {
         // Create chunk with mixed component types
-        var componentTypes = new[] { typeof(Position), typeof(Velocity), typeof(TestComponentA) };
+        var componentTypes = new[] { typeof(Purlieu.Logic.Components.Position), typeof(Purlieu.Logic.Components.Velocity), typeof(TestComponentA) };
         var signature = new ArchetypeSignature()
-            .Add<Position>()
-            .Add<Velocity>()
+            .Add<Purlieu.Logic.Components.Position>()
+            .Add<Purlieu.Logic.Components.Velocity>()
             .Add<TestComponentA>();
         
         var chunk = new Chunk(componentTypes, 128);
@@ -164,8 +170,8 @@ public class CACHE_LineAlignmentTests
         // Verify chunk was created successfully
         Assert.That(chunk.Capacity, Is.EqualTo(128));
         Assert.That(chunk.Count, Is.EqualTo(0));
-        Assert.That(chunk.HasComponent<Position>(), Is.True);
-        Assert.That(chunk.HasComponent<Velocity>(), Is.True);
+        Assert.That(chunk.HasComponent<Purlieu.Logic.Components.Position>(), Is.True);
+        Assert.That(chunk.HasComponent<Purlieu.Logic.Components.Velocity>(), Is.True);
         Assert.That(chunk.HasComponent<TestComponentA>(), Is.True);
         
         // Test adding entities works with aligned storage
@@ -196,10 +202,10 @@ public class CACHE_LineAlignmentTests
         var stopwatch = System.Diagnostics.Stopwatch.StartNew();
         
         // Allocate many aligned arrays to test allocation performance
-        var arrays = new Position[iterations][];
+        var arrays = new Purlieu.Logic.Components.Position[iterations][];
         for (int i = 0; i < iterations; i++)
         {
-            arrays[i] = CacheLineAlignedAllocator.AllocateAligned<Position>(capacity);
+            arrays[i] = CacheLineAlignedAllocator.AllocateAligned<Purlieu.Logic.Components.Position>(capacity);
         }
         
         stopwatch.Stop();
@@ -212,7 +218,7 @@ public class CACHE_LineAlignmentTests
             var array = arrays[i];
             for (int j = 0; j < Math.Min(capacity, array.Length); j++)
             {
-                array[j] = new Position(j, j + 1, j + 2);
+                array[j] = new Purlieu.Logic.Components.Position(j, j + 1, j + 2);
             }
         }
         stopwatch.Stop();

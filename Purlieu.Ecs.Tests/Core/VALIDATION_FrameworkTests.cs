@@ -32,7 +32,7 @@ public class VALIDATION_FrameworkTests
     public void ValidateComponentType_ValidComponent_ReturnsValid()
     {
         // Act
-        var result = _validator.ValidateComponentType<Position>();
+        var result = _validator.ValidateComponentType<Purlieu.Logic.Components.Position>();
         
         // Assert
         Assert.That(result.IsValid, Is.True);
@@ -67,8 +67,8 @@ public class VALIDATION_FrameworkTests
     public void ValidateComponentType_CachesResults()
     {
         // Act - Call twice
-        var result1 = _validator.ValidateComponentType<Position>();
-        var result2 = _validator.ValidateComponentType<Position>();
+        var result1 = _validator.ValidateComponentType<Purlieu.Logic.Components.Position>();
+        var result2 = _validator.ValidateComponentType<Purlieu.Logic.Components.Position>();
         
         // Assert - Should be same instance (cached)
         Assert.That(result1.IsValid, Is.EqualTo(result2.IsValid));
@@ -86,7 +86,7 @@ public class VALIDATION_FrameworkTests
         var entity = _world.CreateEntity();
         
         // Act
-        var result = _validator.ValidateEntityOperation(EntityOperation.AddComponent, entity.Id, typeof(Position));
+        var result = _validator.ValidateEntityOperation(EntityOperation.AddComponent, entity.Id, typeof(Purlieu.Logic.Components.Position));
         
         // Assert
         Assert.That(result.IsValid, Is.True);
@@ -124,8 +124,8 @@ public class VALIDATION_FrameworkTests
     public void ValidateArchetypeTransition_SimpleTransition_ReturnsValid()
     {
         // Arrange
-        var fromComponents = new[] { typeof(Position) };
-        var toComponents = new[] { typeof(Position), typeof(Velocity) };
+        var fromComponents = new[] { typeof(Purlieu.Logic.Components.Position) };
+        var toComponents = new[] { typeof(Purlieu.Logic.Components.Position), typeof(Purlieu.Logic.Components.Velocity) };
         
         // Act
         var result = _validator.ValidateArchetypeTransition(fromComponents, toComponents);
@@ -138,7 +138,7 @@ public class VALIDATION_FrameworkTests
     public void ValidateArchetypeTransition_ComplexTransition_ReturnsWarning()
     {
         // Arrange - Adding and removing multiple components
-        var fromComponents = new[] { typeof(Position), typeof(Velocity) };
+        var fromComponents = new[] { typeof(Purlieu.Logic.Components.Position), typeof(Purlieu.Logic.Components.Velocity) };
         var toComponents = new[] { typeof(Health), typeof(DamageOverTime) };
         
         // Act
@@ -154,8 +154,8 @@ public class VALIDATION_FrameworkTests
     public void ValidateArchetypeTransition_CachesTransitions()
     {
         // Arrange
-        var fromComponents = new[] { typeof(Position) };
-        var toComponents = new[] { typeof(Position), typeof(Velocity) };
+        var fromComponents = new[] { typeof(Purlieu.Logic.Components.Position) };
+        var toComponents = new[] { typeof(Purlieu.Logic.Components.Position), typeof(Purlieu.Logic.Components.Velocity) };
         
         // Act - Call twice
         var result1 = _validator.ValidateArchetypeTransition(fromComponents, toComponents);
@@ -220,7 +220,7 @@ public class VALIDATION_FrameworkTests
         var entity = _world.CreateEntity();
         
         // Act & Assert - Should not throw for valid component
-        Assert.DoesNotThrow(() => _world.AddComponent(entity, new Position(1, 2, 3)));
+        Assert.DoesNotThrow(() => _world.AddComponent(entity, new Purlieu.Logic.Components.Position(1, 2, 3)));
     }
     
     [Test]
@@ -228,11 +228,11 @@ public class VALIDATION_FrameworkTests
     {
         // Arrange
         var entity = _world.CreateEntity();
-        _world.AddComponent(entity, new Position(1, 2, 3));
+        _world.AddComponent(entity, new Purlieu.Logic.Components.Position(1, 2, 3));
         _logger.Clear();
         
         // Act - Trigger a complex archetype transition that should generate warnings
-        _world.AddComponent(entity, new Velocity(1, 1, 1));
+        _world.AddComponent(entity, new Purlieu.Logic.Components.Velocity(1, 1, 1));
         
         // Assert - Check if validation warnings were logged
         var warningMessages = _logger.LoggedMessages
@@ -256,9 +256,9 @@ public class VALIDATION_FrameworkTests
         var nullValidator = NullEcsValidator.Instance;
         
         // Act - Multiple validation calls should be no-ops
-        var result1 = nullValidator.ValidateComponentType<Position>();
-        var result2 = nullValidator.ValidateEntityOperation(EntityOperation.Create, 1, typeof(Position));
-        var result3 = nullValidator.ValidateArchetypeTransition(new[] { typeof(Position) }, new[] { typeof(Velocity) });
+        var result1 = nullValidator.ValidateComponentType<Purlieu.Logic.Components.Position>();
+        var result2 = nullValidator.ValidateEntityOperation(EntityOperation.Create, 1, typeof(Purlieu.Logic.Components.Position));
+        var result3 = nullValidator.ValidateArchetypeTransition(new[] { typeof(Purlieu.Logic.Components.Position) }, new[] { typeof(Purlieu.Logic.Components.Velocity) });
         
         // Assert - All should return Valid with no allocation
         Assert.That(result1.IsValid, Is.True);
@@ -274,7 +274,7 @@ public class VALIDATION_FrameworkTests
         
         for (int i = 0; i < 10000; i++)
         {
-            _validator.ValidateComponentType<Position>();
+            _validator.ValidateComponentType<Purlieu.Logic.Components.Position>();
         }
         
         stopwatch.Stop();

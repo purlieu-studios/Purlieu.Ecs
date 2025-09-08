@@ -19,6 +19,12 @@ public class SNAP_SnapshotTests
         LogicBootstrap.RegisterComponents(_world);
     }
     
+    [TearDown]
+    public void TearDown()
+    {
+        _world?.Dispose();
+    }
+    
     [Test]
     public void Snapshot_CaptureAndRestore_PreservesWorldState()
     {
