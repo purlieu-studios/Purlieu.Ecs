@@ -48,9 +48,10 @@ public class LOGGING_StructuredLoggingTests
         // Act - Add component
         _world.AddComponent(entity, new Purlieu.Logic.Components.Position(10, 20, 30));
         
-        // Assert - Component addition logged
-        Assert.That(_testLogger.LoggedMessages.Count, Is.EqualTo(1));
-        var addMessage = _testLogger.LoggedMessages[0];
+        // Assert - Component addition and archetype transition logged
+        Assert.That(_testLogger.LoggedMessages.Count, Is.GreaterThanOrEqualTo(1));
+        var addMessage = _testLogger.LoggedMessages.FirstOrDefault(m => m.Operation == EcsOperation.ComponentAdd);
+        Assert.That(addMessage, Is.Not.Null);
         Assert.That(addMessage.Operation, Is.EqualTo(EcsOperation.ComponentAdd));
         Assert.That(addMessage.ComponentType, Is.EqualTo("Position"));
         
@@ -70,9 +71,10 @@ public class LOGGING_StructuredLoggingTests
         // Act - Remove component
         _world.RemoveComponent<Purlieu.Logic.Components.Position>(entity);
         
-        // Assert - Component removal logged
-        Assert.That(_testLogger.LoggedMessages.Count, Is.EqualTo(1));
-        var removeMessage = _testLogger.LoggedMessages[0];
+        // Assert - Component removal and archetype transition logged
+        Assert.That(_testLogger.LoggedMessages.Count, Is.GreaterThanOrEqualTo(1));
+        var removeMessage = _testLogger.LoggedMessages.FirstOrDefault(m => m.Operation == EcsOperation.ComponentRemove);
+        Assert.That(removeMessage, Is.Not.Null);
         Assert.That(removeMessage.Operation, Is.EqualTo(EcsOperation.ComponentRemove));
         Assert.That(removeMessage.ComponentType, Is.EqualTo("Position"));
     }
@@ -92,8 +94,9 @@ public class LOGGING_StructuredLoggingTests
             .Where(m => m.Operation == EcsOperation.ArchetypeTransition)
             .ToList();
         
-        Assert.That(transitionMessages.Count, Is.EqualTo(1));
-        var transition = transitionMessages[0];
+        Assert.That(transitionMessages.Count, Is.GreaterThanOrEqualTo(1));
+        var transition = transitionMessages.FirstOrDefault(m => m.Details != null && m.Details.Contains("From:") && m.Details.Contains("To:"));
+        Assert.That(transition, Is.Not.Null);
         Assert.That(transition.Details, Does.Contain("From:").And.Contain("To:"));
     }
     

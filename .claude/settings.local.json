@@ -47,7 +47,8 @@
       "Bash(test_archetype_issue.exe)",
       "Bash(taskkill:*)",
       "Bash(tasklist:*)",
-      "Bash(verbosity=minimal)"
+      "Bash(verbosity=minimal)",
+      "Bash(verbosity=quiet)"
     ],
     "deny": [],
     "ask": []
