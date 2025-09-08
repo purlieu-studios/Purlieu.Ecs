@@ -12,6 +12,14 @@ public class ARCH_SimpleTransformationTests
     public void SetUp()
     {
         _world = new World();
+        
+        // Ensure components are registered for this test
+        _world.RegisterComponent<PurlieuEcs.Common.Position>();
+        _world.RegisterComponent<PurlieuEcs.Common.Velocity>();
+        
+        // Ensure consistent component type IDs by accessing them early
+        var positionId = ComponentTypeId.Get<PurlieuEcs.Common.Position>();
+        var velocityId = ComponentTypeId.Get<PurlieuEcs.Common.Velocity>();
     }
     
     [TearDown]
@@ -27,10 +35,25 @@ public class ARCH_SimpleTransformationTests
         const int entityCount = 100;
         for (int i = 0; i < entityCount; i++)
         {
-            _world.Create(
-                new Position { X = i, Y = i, Z = i },
-                new Velocity { X = 1, Y = 2, Z = 3 }
+            var entity = _world.Create(
+                new PurlieuEcs.Common.Position { X = i, Y = i, Z = i },
+                new PurlieuEcs.Common.Velocity { X = 1, Y = 2, Z = 3 }
             );
+            
+            // Debug the first entity creation in detail
+            if (i == 0) 
+            {
+                Console.WriteLine($"Created first test entity: {entity}");
+                Console.WriteLine($"  Has Position: {_world.Has<PurlieuEcs.Common.Position>(entity)}");
+                Console.WriteLine($"  Has Velocity: {_world.Has<PurlieuEcs.Common.Velocity>(entity)}");
+                var debugPos = _world.Get<PurlieuEcs.Common.Position>(entity);
+                var debugVel = _world.Get<PurlieuEcs.Common.Velocity>(entity);
+                Console.WriteLine($"  Position: X={debugPos.X}, Y={debugPos.Y}, Z={debugPos.Z}");
+                Console.WriteLine($"  Velocity: X={debugVel.X}, Y={debugVel.Y}, Z={debugVel.Z}");
+                
+                // Debug entity's archetype info - let's check what archetype signatures exist
+                Console.WriteLine($"  Debugging archetype signatures...");
+            }
         }
         
         float deltaTime = 0.016f;
@@ -68,8 +91,20 @@ public class ARCH_SimpleTransformationTests
         // ========================================
         
         // Verify movement worked correctly
-        var firstEntity = _world.First<Position>();
-        var pos = _world.Get<Position>(firstEntity);
+        var firstEntity = _world.First<PurlieuEcs.Common.Position>();
+        Console.WriteLine($"First entity: {firstEntity}");
+        
+        // Check if we have valid entity
+        Assert.That(firstEntity.Id, Is.Not.EqualTo(0), "Should find a valid entity");
+        
+        // Debug component presence
+        Console.WriteLine($"Entity has Position: {_world.Has<PurlieuEcs.Common.Position>(firstEntity)}");
+        Console.WriteLine($"Entity has Velocity: {_world.Has<PurlieuEcs.Common.Velocity>(firstEntity)}");
+        
+        var pos = _world.Get<PurlieuEcs.Common.Position>(firstEntity);
+        var vel = _world.Get<PurlieuEcs.Common.Velocity>(firstEntity);
+        Console.WriteLine($"Position after movement: X={pos.X}, Y={pos.Y}, Z={pos.Z}");
+        Console.WriteLine($"Velocity: X={vel.X}, Y={vel.Y}, Z={vel.Z}");
         
         // Should have moved by velocity * deltaTime
         Assert.That(pos.X, Is.EqualTo(0.016f).Within(0.001f)); // 0 + (1 * 0.016)
@@ -77,7 +112,7 @@ public class ARCH_SimpleTransformationTests
         Assert.That(pos.Z, Is.EqualTo(0.048f).Within(0.001f)); // 0 + (3 * 0.016)
         
         // All entities should have been processed
-        int processedCount = _world.Count<Position>();
+        int processedCount = _world.Count<PurlieuEcs.Common.Position>();
         Assert.That(processedCount, Is.EqualTo(entityCount));
     }
     
@@ -88,9 +123,9 @@ public class ARCH_SimpleTransformationTests
         for (int i = 0; i < 50; i++)
         {
             _world.Create(
-                new Position { X = 0, Y = 0, Z = 0 },
-                new Velocity { X = 0, Y = 0, Z = 0 }, 
-                new Acceleration { X = 1, Y = -9.8f, Z = 0 } // Gravity-like acceleration
+                new PurlieuEcs.Common.Position { X = 0, Y = 0, Z = 0 },
+                new PurlieuEcs.Common.Velocity { X = 0, Y = 0, Z = 0 }, 
+                new PurlieuEcs.Common.Acceleration { X = 1, Y = -9.8f, Z = 0 } // Gravity-like acceleration
             );
         }
         
@@ -111,9 +146,9 @@ public class ARCH_SimpleTransformationTests
         _world.UpdatePhysics(deltaTime);
         
         // Verify physics integration worked
-        var entity = _world.First<Position>();
-        var pos = _world.Get<Position>(entity);
-        var vel = _world.Get<Velocity>(entity);
+        var entity = _world.First<PurlieuEcs.Common.Position>();
+        var pos = _world.Get<PurlieuEcs.Common.Position>(entity);
+        var vel = _world.Get<PurlieuEcs.Common.Velocity>(entity);
         
         // After physics step:
         // velocity = acceleration * deltaTime = (1, -9.8, 0) * 0.1 = (0.1, -0.98, 0)
@@ -153,11 +188,11 @@ public class ARCH_SimpleTransformationTests
         */
         
         // NOW: Fluent creation + automatic optimization
-        var entity = _world.Create(new Position { X = 10, Y = 20, Z = 30 }, new Velocity { X = 1, Y = 2, Z = 3 });
+        var entity = _world.Create(new PurlieuEcs.Common.Position { X = 10, Y = 20, Z = 30 }, new PurlieuEcs.Common.Velocity { X = 1, Y = 2, Z = 3 });
         _world.UpdateMovement(0.016f);
         
         // Same result, much cleaner code
-        var pos = _world.Get<Position>(entity);
+        var pos = _world.Get<PurlieuEcs.Common.Position>(entity);
         Assert.That(pos.X, Is.EqualTo(10.016f).Within(0.001f));
         Assert.That(pos.Y, Is.EqualTo(20.032f).Within(0.001f));
         Assert.That(pos.Z, Is.EqualTo(30.048f).Within(0.001f));
@@ -171,8 +206,8 @@ public class ARCH_SimpleTransformationTests
         for (int i = 0; i < entityCount; i++)
         {
             _world.Create(
-                new Position { X = i, Y = i, Z = i },
-                new Velocity { X = 1, Y = 1, Z = 1 }
+                new PurlieuEcs.Common.Position { X = i, Y = i, Z = i },
+                new PurlieuEcs.Common.Velocity { X = 1, Y = 1, Z = 1 }
             );
         }
         
@@ -192,7 +227,7 @@ public class ARCH_SimpleTransformationTests
             "Automatic optimization should provide excellent performance");
         
         // Verify all entities processed correctly
-        var finalCount = _world.Count<Position>();
+        var finalCount = _world.Count<PurlieuEcs.Common.Position>();
         Assert.That(finalCount, Is.EqualTo(entityCount));
     }
 }

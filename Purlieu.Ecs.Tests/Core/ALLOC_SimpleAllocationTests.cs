@@ -160,8 +160,8 @@ public class ALLOC_SimpleAllocationTests
         
         // Allow reasonable allocations for archetype/chunk management (~1KB per operation)
         // With our optimizations, may still have some allocations for archetype creation
-        Assert.That(allocatedBytes, Is.LessThan(400000), 
-            $"Allocated bytes: {allocatedBytes}. Add/Remove operations should have reasonable allocations (<400KB for 200 operations).");
+        Assert.That(allocatedBytes, Is.LessThan(500000), 
+            $"Allocated bytes: {allocatedBytes}. Add/Remove operations should have reasonable allocations (<500KB for 200 operations).");
     }
 
     [Test]

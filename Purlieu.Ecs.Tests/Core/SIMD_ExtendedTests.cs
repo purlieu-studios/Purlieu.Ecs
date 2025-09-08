@@ -129,6 +129,7 @@ public class SIMD_ExtendedTests
             
             var query = world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>();
             
+            int totalEntitiesProcessed = 0;
             foreach (var chunk in query.ChunksStack())
             {
                 var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
@@ -147,11 +148,17 @@ public class SIMD_ExtendedTests
                 {
                     accessSuccess = false;
                 }
-                Assert.That(accessSuccess, Is.True, $"Should safely access all elements in chunk of size {size}");
+                Assert.That(accessSuccess, Is.True, $"Should safely access all elements in chunk of size {positions.Length}");
                 
-                Assert.That(positions.Length, Is.EqualTo(Math.Min(size, 512)),
-                    $"Chunk should contain expected number of elements for size {size}");
+                // Each chunk should not exceed maximum chunk capacity
+                Assert.That(positions.Length, Is.LessThanOrEqualTo(512),
+                    $"Chunk should not exceed maximum capacity");
+                totalEntitiesProcessed += positions.Length;
             }
+            
+            // Verify all entities were processed across all chunks
+            Assert.That(totalEntitiesProcessed, Is.EqualTo(size),
+                $"Should process all {size} entities across chunks");
         }
     }
 
@@ -231,7 +238,7 @@ public class SIMD_ExtendedTests
         // Test compatibility across different scenarios
         CreateTestEntities(100);
         
-        var query = _world.Query().With<Position>().With<Velocity>();
+        var query = _world.Query().With<Purlieu.Logic.Components.Position>().With<Purlieu.Logic.Components.Velocity>();
         
         // Test that basic operations work regardless of SIMD support
         int processedChunks = 0;
@@ -243,14 +250,14 @@ public class SIMD_ExtendedTests
             processedEntities += chunk.Count;
             
             var positions = chunk.GetSpan<Purlieu.Logic.Components.Position>();
-            var velocities = chunk.GetSpan<Velocity>();
+            var velocities = chunk.GetSpan<Purlieu.Logic.Components.Velocity>();
             
             // Basic operations should work on all platforms
             Assert.That(positions.Length, Is.GreaterThan(0));
             Assert.That(velocities.Length, Is.EqualTo(positions.Length));
             
             // Test that SIMD support detection works
-            bool simdSupported = chunk.IsSimdSupported<Position>();
+            bool simdSupported = chunk.IsSimdSupported<Purlieu.Logic.Components.Position>();
             Assert.That(simdSupported, Is.TypeOf<bool>());
             
             // If SIMD supported, data should be accessible

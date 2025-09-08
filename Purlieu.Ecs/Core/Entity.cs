@@ -15,6 +15,7 @@ public readonly struct Entity : IEquatable<Entity>
 
     public uint Id => (uint)(_packed & IdMask);
     public uint Version => (uint)(_packed >> VersionShift);
+    public uint Generation => Version; // Alias for regression test compatibility
 
     public Entity(uint id, uint version)
     {

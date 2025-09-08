@@ -31,10 +31,15 @@ public static class SimpleArchExtensions
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void UpdateMovement(this World world, float deltaTime)
     {
-        var query = world.Query().With<Position>().With<Velocity>();
+        var query = world.Query().With<PurlieuEcs.Common.Position>().With<PurlieuEcs.Common.Velocity>();
         
+        int totalEntitiesProcessed = 0;
+        int chunkCount = 0;
         foreach (var chunk in query.ChunksStack())
         {
+            chunkCount++;
+            totalEntitiesProcessed += chunk.Count;
+            
             // Automatically choose optimal processing path
             if (ShouldUseSimdPath(chunk.Count))
             {
@@ -68,12 +73,12 @@ public static class SimpleArchExtensions
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     public static void UpdateDamageOverTime(this World world, float deltaTime)
     {
-        var query = world.Query().With<Health>().With<DamageOverTime>();
+        var query = world.Query().With<PurlieuEcs.Common.Health>().With<PurlieuEcs.Common.DamageOverTime>();
         
         foreach (var chunk in query.ChunksStack())
         {
-            var healthSpan = chunk.GetSpan<Health>();
-            var dotSpan = chunk.GetSpan<DamageOverTime>();
+            var healthSpan = chunk.GetSpan<PurlieuEcs.Common.Health>();
+            var dotSpan = chunk.GetSpan<PurlieuEcs.Common.DamageOverTime>();
             
             for (int i = 0; i < healthSpan.Length; i++)
             {
@@ -99,8 +104,8 @@ public static class SimpleArchExtensions
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void ProcessMovementOptimized(Chunk chunk, float deltaTime)
     {
-        var positions = chunk.GetSpan<Position>();
-        var velocities = chunk.GetSpan<Velocity>();
+        var positions = chunk.GetSpan<PurlieuEcs.Common.Position>();
+        var velocities = chunk.GetSpan<PurlieuEcs.Common.Velocity>();
         
         // Loop structure encourages compiler auto-vectorization
         for (int i = 0; i < positions.Length; i++)
@@ -117,8 +122,8 @@ public static class SimpleArchExtensions
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void ProcessMovementStandard(Chunk chunk, float deltaTime)
     {
-        var positions = chunk.GetSpan<Position>();
-        var velocities = chunk.GetSpan<Velocity>();
+        var positions = chunk.GetSpan<PurlieuEcs.Common.Position>();
+        var velocities = chunk.GetSpan<PurlieuEcs.Common.Velocity>();
         
         for (int i = 0; i < positions.Length; i++)
         {
@@ -134,12 +139,12 @@ public static class SimpleArchExtensions
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
     private static void UpdateVelocityFromAcceleration(World world, float deltaTime)
     {
-        var query = world.Query().With<Velocity>().With<Acceleration>();
+        var query = world.Query().With<PurlieuEcs.Common.Velocity>().With<PurlieuEcs.Common.Acceleration>();
         
         foreach (var chunk in query.ChunksStack())
         {
-            var velocities = chunk.GetSpan<Velocity>();
-            var accelerations = chunk.GetSpan<Acceleration>();
+            var velocities = chunk.GetSpan<PurlieuEcs.Common.Velocity>();
+            var accelerations = chunk.GetSpan<PurlieuEcs.Common.Acceleration>();
             
             for (int i = 0; i < velocities.Length; i++)
             {

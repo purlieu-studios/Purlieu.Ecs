@@ -153,13 +153,26 @@ public readonly struct ArchetypeSignature : IEquatable<ArchetypeSignature>
     /// </summary>
     public bool IsSupersetOf(ArchetypeSignature other)
     {
-        if (other._bits.Length > _bits.Length)
-            return false;
+        // Check if this signature contains all bits that are set in the other signature
+        int minLength = Math.Min(_bits.Length, other._bits.Length);
         
-        for (int i = 0; i < other._bits.Length; i++)
+        // Check all elements within the range of both arrays
+        for (int i = 0; i < minLength; i++)
         {
+            // If other has bits set that this doesn't have, it's not a superset
             if ((other._bits[i] & ~_bits[i]) != 0)
+            {
                 return false;
+            }
+        }
+        
+        // Check if other has bits set beyond our length
+        for (int i = minLength; i < other._bits.Length; i++)
+        {
+            if (other._bits[i] != 0)
+            {
+                return false;
+            }
         }
         
         return true;

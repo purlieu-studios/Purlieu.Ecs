@@ -58,7 +58,7 @@ public sealed class SystemScheduler
         var systemType = typeof(T);
         if (_systemInstances.ContainsKey(systemType))
         {
-            throw new InvalidOperationException($"System {systemType.Name} is already registered");
+            _logger.LogEntityOperation(LogLevel.Warning, EcsOperation.SystemExecute, 0, details: $"System {systemType.Name} already registered - replacing existing instance");
         }
         
         _systemInstances[systemType] = system;

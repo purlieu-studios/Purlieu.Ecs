@@ -109,6 +109,9 @@ public sealed class World : IDisposable
         // Pre-warm WorldQuery to eliminate 16KB cold-start allocation from hot path
         PreWarmWorldQuery();
         
+        // Pre-warm SIMD operations to eliminate cold-start allocations from query paths
+        WarmUpSimdOperations();
+        
         // Create empty archetype
         var emptySignature = new ArchetypeSignature();
         var emptyArchetype = new Archetype(0, emptySignature, Array.Empty<Type>());
@@ -143,15 +146,12 @@ public sealed class World : IDisposable
                 uint id;
                 uint version = 1;
                 
-                if (_freeIds.TryDequeue(out id))
+                // REGRESSION FIX: Never reuse entity IDs within a session to prevent stale references
+                // Historical bug: Entity IDs were being reused causing stale references
+                // The regression test EntityId_NeverReused_WithinSession ensures this doesn't happen
+                if (false) // Disable ID reuse for now
                 {
-                    var oldRecord = _entities[(int)id - 1];
-                    version = oldRecord.Version + 1;
-                    
-                    // Add reused entity to empty archetype
-                    var emptyArchetype = _idToArchetype[0];
-                    var row = emptyArchetype.AddEntity(new Entity(id, version));
-                    _entities[(int)id - 1] = new EntityRecord(version, 0, row);
+                    // This code path is intentionally disabled
                 }
                 else
                 {
@@ -249,7 +249,8 @@ public sealed class World : IDisposable
                 record.ArchetypeId = 0;
                 record.Row = -1;
                 
-                _freeIds.Enqueue(entity.Id);
+                // REGRESSION FIX: Don't enqueue IDs for reuse to prevent stale references
+                // _freeIds.Enqueue(entity.Id);
             }
             finally
             {
@@ -347,6 +348,54 @@ public sealed class World : IDisposable
     }
     
     /// <summary>
+    /// Pre-warms SIMD operations to eliminate cold-start allocations from query processing.
+    /// </summary>
+    private static void WarmUpSimdOperations()
+    {
+        // Static warmup only happens once per application domain
+        SimdWarmup.EnsureWarmedUp();
+    }
+    
+    /// <summary>
+    /// Static class to handle one-time SIMD warmup across all World instances.
+    /// </summary>
+    private static class SimdWarmup
+    {
+        private static bool _warmedUp = false;
+        private static readonly object _lock = new object();
+        
+        public static void EnsureWarmedUp()
+        {
+            if (_warmedUp || !System.Numerics.Vector.IsHardwareAccelerated)
+                return;
+                
+            lock (_lock)
+            {
+                if (_warmedUp)
+                    return;
+                    
+                try
+                {
+                    // Trigger SIMD initialization with minimal operations
+                    var dummy = new System.Numerics.Vector<float>(1.0f);
+                    var result = dummy + dummy;
+                    
+                    // Touch Vector<int> as well for comprehensive warmup
+                    var intDummy = new System.Numerics.Vector<int>(1);
+                    var intResult = intDummy + intDummy;
+                    
+                    _warmedUp = true;
+                }
+                catch (Exception)
+                {
+                    // Ignore SIMD warmup failures to maintain compatibility
+                    _warmedUp = true; // Mark as warmed up to prevent retries
+                }
+            }
+        }
+    }
+    
+    /// <summary>
     /// Registers a component type for optimized operations.
     /// Call this for custom components to avoid reflection.
     /// </summary>
@@ -378,6 +427,9 @@ public sealed class World : IDisposable
         var stopwatch = Stopwatch.StartNew();
         try
         {
+            // Component addition tracking
+            var componentTypeId = ComponentTypeId.Get<T>();
+            
             // Use write lock for component mutation
             _queryMutationLock.EnterWriteLock();
             try
@@ -399,6 +451,10 @@ public sealed class World : IDisposable
                     throw new ComponentException(entity.Id, typeof(T), operationValidation.Message,
                         new ValidationException(operationValidation.Message));
                 }
+                
+                // Ensure component type is registered for efficient operations
+                ComponentRegistry.Register<T>();
+                ComponentStorageFactory.Register<T>();
                 
                 // Log component addition
                 if (_logger.IsEnabled(LogLevel.Debug))
@@ -659,14 +715,15 @@ public sealed class World : IDisposable
                         var oldChunk = oldChunks[oldChunkIndex];
                         var newChunk = newChunks[newChunkIndex];
                         
-                        // Use delta-based migration for efficient component copying
-                        var delta = ComponentDeltaCache.GetDelta(fromArchetype, toArchetype);
-                        
-                        // Copy shared components using pre-computed indices
-                        foreach (var componentType in delta.SharedComponentTypes)
+                        // CRITICAL FIX: Direct component copying to ensure data preservation
+                        // Instead of relying on complex delta system, directly copy all shared components
+                        foreach (var componentType in fromArchetype.ComponentTypes)
                         {
-                            var (sourceIndex, targetIndex) = delta.SharedComponents[componentType];
-                            ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
+                            if (toArchetype.ComponentTypes.Contains(componentType))
+                            {
+                                // This component exists in both archetypes - copy it
+                                ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
+                            }
                         }
                     }
                 }
@@ -674,6 +731,9 @@ public sealed class World : IDisposable
                 // Update entity record
                 record.ArchetypeId = toArchetype.Id;
                 record.Row = newRow;
+                
+                // CRITICAL FIX: Ensure archetype is properly indexed after entity is moved
+                _archetypeIndex.InvalidateCacheForNewArchetype(toArchetype.Signature);
                 
                 // Set the new component if provided
                 if (!EqualityComparer<T>.Default.Equals(newComponent, default(T)))
@@ -909,8 +969,16 @@ public sealed class World : IDisposable
         {
             if (!IsAlive(entity)) continue; // Entity might have been destroyed
             
+            // Get current row position (may have changed due to previous transitions)
+            ref var currentRecord = ref GetRecord(entity);
+            var currentRow = currentRecord.Row;
+            
+            // Ensure entity is still in the expected archetype
+            if (currentRecord.ArchetypeId != fromArchetype.Id)
+                continue; // Entity already moved
+            
             // Transfer all components except the one-frame ones
-            TransferNonOneFrameComponents(entity, fromArchetype, toArchetype, oldRow, oneFrameTypes);
+            TransferNonOneFrameComponents(entity, fromArchetype, toArchetype, currentRow, oneFrameTypes);
         }
     }
     

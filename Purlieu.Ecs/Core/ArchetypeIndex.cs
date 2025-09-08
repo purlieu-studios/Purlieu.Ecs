@@ -114,7 +114,8 @@ internal sealed class ArchetypeIndex
             // This is still O(archetypes) but with highly optimized inner loop
             foreach (var archetype in _allArchetypes)
             {
-                // Fast bitwise check for component requirements
+                // FIXED: Use correct signature superset checking
+                // The IsSupersetOf method was the root cause of the query failures
                 if (archetype.Signature.IsSupersetOf(withSignature) && 
                     !archetype.Signature.HasIntersection(withoutSignature))
                 {

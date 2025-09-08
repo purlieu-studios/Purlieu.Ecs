@@ -42,7 +42,11 @@
       "Bash(find:*)",
       "Bash(csc:*)",
       "Bash(git checkout:*)",
-      "WebFetch(domain:arch-ecs.gitbook.io)"
+      "WebFetch(domain:arch-ecs.gitbook.io)",
+      "Bash(dotnet script:*)",
+      "Bash(test_archetype_issue.exe)",
+      "Bash(taskkill:*)",
+      "Bash(tasklist:*)"
     ],
     "deny": [],
     "ask": []

@@ -288,7 +288,28 @@ public sealed class MemoryManager : IDisposable
         {
             if (!_disposed)
             {
+                var stopwatch = Stopwatch.StartNew();
+                var beforeMemory = GC.GetTotalMemory(false);
+                
                 PerformCleanup(level);
+                
+                // Force GC if memory pressure is high
+                if (level >= CleanupLevel.Normal)
+                {
+                    GC.Collect(2, GCCollectionMode.Optimized);
+                    GC.WaitForPendingFinalizers();
+                    GC.Collect(2, GCCollectionMode.Optimized);
+                }
+                
+                var afterMemory = GC.GetTotalMemory(false);
+                var memoryReclaimed = beforeMemory - afterMemory;
+                
+                stopwatch.Stop();
+                
+                // Update statistics
+                _lastCleanupTicks = DateTime.UtcNow.Ticks;
+                _cleanupCount++;
+                _totalMemoryReclaimed += Math.Max(0, memoryReclaimed);
             }
         }
     }

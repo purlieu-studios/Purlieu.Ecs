@@ -431,38 +431,41 @@ public static class WorldSnapshot
     /// </summary>
     private static Func<Chunk, int, byte[]> CreateComponentGetter(Type componentType, int elementSize)
     {
-        // Create parameter expressions
-        var chunkParam = Expression.Parameter(typeof(Chunk), "chunk");
-        var rowParam = Expression.Parameter(typeof(int), "row");
-        
-        // Get the generic GetComponent method
+        // Use reflection to call GetComponent<T> method directly
         var getComponentMethod = typeof(Chunk).GetMethod(nameof(Chunk.GetComponent))?.MakeGenericMethod(componentType);
+        
         if (getComponentMethod == null)
         {
-            // Fallback to returning empty bytes if method not found
             return (chunk, row) => new byte[elementSize];
         }
         
-        // Create method call expression: chunk.GetComponent<T>(row)
-        var getComponentCall = Expression.Call(chunkParam, getComponentMethod, rowParam);
-        
-        // Create a method that converts the component to bytes
-        var convertMethod = typeof(WorldSnapshot).GetMethod(nameof(ComponentToBytes), 
-            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static)?
-            .MakeGenericMethod(componentType);
-        
-        if (convertMethod == null)
+        return (chunk, row) =>
         {
-            // Fallback if conversion method not found
-            return (chunk, row) => new byte[elementSize];
-        }
-        
-        // Create the conversion call: ComponentToBytes<T>(component)
-        var convertCall = Expression.Call(null, convertMethod, getComponentCall);
-        
-        // Compile the lambda expression
-        var lambda = Expression.Lambda<Func<Chunk, int, byte[]>>(convertCall, chunkParam, rowParam);
-        return lambda.Compile();
+            try
+            {
+                // Call GetComponent<T>(row) and get the value
+                var component = getComponentMethod.Invoke(chunk, new object[] { row });
+                if (component == null)
+                    return new byte[elementSize];
+                
+                // Convert to bytes using Marshal
+                var bytes = new byte[elementSize];
+                var handle = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+                try
+                {
+                    Marshal.StructureToPtr(component, handle.AddrOfPinnedObject(), false);
+                }
+                finally
+                {
+                    handle.Free();
+                }
+                return bytes;
+            }
+            catch
+            {
+                return new byte[elementSize];
+            }
+        };
     }
     
     /// <summary>
