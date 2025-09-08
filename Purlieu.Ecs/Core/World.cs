@@ -723,7 +723,9 @@ public sealed class World : IDisposable
                             if (toArchetype.ComponentTypes.Contains(componentType))
                             {
                                 // This component exists in both archetypes - copy it
-                                ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
+                                var success = ComponentRegistry.TryCopy(componentType, oldChunk, oldLocalRow, newChunk, newLocalRow);
+                                if (!success)
+                                    throw new EcsException($"Failed to copy component {componentType.Name} during archetype transition for entity {entity}");
                             }
                         }
                     }
