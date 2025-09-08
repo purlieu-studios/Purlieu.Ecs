@@ -306,7 +306,7 @@ public sealed class SystemScheduler
                         processedSystems.Add(system);
                         
                         // If any system in the group doesn't allow parallel execution, the whole group is sequential
-                        if (!dependencies.AllowParallelExecution || (dependencies.WriteComponents?.Length ?? 0) > 0)
+                        if (!dependencies.AllowParallelExecution || dependencies.WriteComponents.Length > 0)
                         {
                             canRunInParallel = false;
                         }
@@ -378,8 +378,8 @@ public sealed class SystemScheduler
             return true;
         
         // Check for component access conflicts
-        var writeComponents = new HashSet<Type>(dependencies.WriteComponents ?? Array.Empty<Type>());
-        var readComponents = new HashSet<Type>(dependencies.ReadComponents ?? Array.Empty<Type>());
+        var writeComponents = new HashSet<Type>(dependencies.WriteComponents);
+        var readComponents = new HashSet<Type>(dependencies.ReadComponents);
         
         foreach (var existingSystem in currentGroup)
         {
@@ -387,32 +387,23 @@ public sealed class SystemScheduler
                 continue;
             
             // Check for write-write conflicts
-            if (existingDeps.WriteComponents != null)
+            foreach (var writeComponent in existingDeps.WriteComponents)
             {
-                foreach (var writeComponent in existingDeps.WriteComponents)
-                {
-                    if (writeComponents.Contains(writeComponent))
-                        return false; // Write-write conflict
-                }
+                if (writeComponents.Contains(writeComponent))
+                    return false; // Write-write conflict
             }
             
             // Check for read-write conflicts
-            if (existingDeps.ReadComponents != null)
+            foreach (var writeComponent in writeComponents)
             {
-                foreach (var writeComponent in writeComponents)
-                {
-                    if (existingDeps.ReadComponents.Contains(writeComponent))
-                        return false; // Read-write conflict
-                }
+                if (existingDeps.ReadComponents.Contains(writeComponent))
+                    return false; // Read-write conflict
             }
             
-            if (existingDeps.WriteComponents != null)
+            foreach (var existingWriteComponent in existingDeps.WriteComponents)
             {
-                foreach (var existingWriteComponent in existingDeps.WriteComponents)
-                {
-                    if (readComponents.Contains(existingWriteComponent))
-                        return false; // Write-read conflict
-                }
+                if (readComponents.Contains(existingWriteComponent))
+                    return false; // Write-read conflict
             }
         }
         

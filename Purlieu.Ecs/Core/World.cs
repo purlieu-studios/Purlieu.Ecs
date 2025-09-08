@@ -19,10 +19,6 @@ public sealed class World : IDisposable
     private const int ChunkCapacity = 512;
     private const int ChunkCapacityBits = 9; // log2(512)
     private const int ChunkCapacityMask = ChunkCapacity - 1; // 511 for fast modulo
-    
-    // Thread-safe cache for reflection method calls to avoid concurrent dictionary enumeration
-    private static readonly ConcurrentDictionary<Type, MethodInfo?> _copyMethodCache = new();
-    
     private EntityRecord[] _entities;
     private int _entityCapacity;
     private readonly ConcurrentQueue<uint> _freeIds;
@@ -34,7 +30,7 @@ public sealed class World : IDisposable
     internal readonly ArchetypeIndex _archetypeIndex; // High-performance query index
     private ulong _nextArchetypeId;
     
-    private readonly ConcurrentDictionary<Type, object> _eventChannels;
+    private readonly Dictionary<Type, object> _eventChannels;
     private readonly MemoryManager _memoryManager;
     private readonly IEcsLogger _logger;
     private readonly IEcsValidator _validator;
@@ -80,7 +76,7 @@ public sealed class World : IDisposable
         _archetypeIndex = new ArchetypeIndex(expectedArchetypes: 64);
         _nextArchetypeId = 1; // 0 is reserved for empty archetype
         
-        _eventChannels = new ConcurrentDictionary<Type, object>();
+        _eventChannels = new Dictionary<Type, object>(capacity: 32);
         
         // Initialize logger (use null logger if none provided)
         _logger = logger ?? NullEcsLogger.Instance;
@@ -439,11 +435,7 @@ public sealed class World : IDisposable
             try
             {
                 if (!IsAlive(entity))
-                {
-                    var exception = new EntityNotFoundException(entity.Id, "Cannot add component to non-existent entity");
-                    _logger.LogError(exception, EcsOperation.ComponentAdd, entity.Id, CorrelationContext.Current);
-                    throw exception;
-                }
+                    throw new EntityNotFoundException(entity.Id, "Cannot add component to non-existent entity");
                 
                 // Validate component type and entity operation
                 var componentValidation = _validator.ValidateComponentType<T>();
@@ -623,12 +615,7 @@ public sealed class World : IDisposable
         try
         {
             if (!IsAlive(entity))
-            {
-                // Log error for invalid entity but return false gracefully
-                _logger.LogError(new EntityNotFoundException(entity.Id, "Cannot check component on non-existent entity"), 
-                    EcsOperation.ComponentGet, entity.Id, CorrelationContext.Current);
                 return false;
-            }
                 
             var record = GetRecord(entity);
             var archetype = _idToArchetype[record.ArchetypeId];
@@ -1057,13 +1044,13 @@ public sealed class World : IDisposable
     private void CopyComponentBetweenChunks(Chunk sourceChunk, Chunk targetChunk, Type componentType, 
                                           int sourceRow, int targetRow)
     {
-        // Use thread-safe cached reflection to avoid concurrent dictionary enumeration
-        var copyMethod = _copyMethodCache.GetOrAdd(componentType, type =>
-        {
-            return typeof(World).GetMethod(nameof(CopyComponentGeneric), 
-                System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
-                .MakeGenericMethod(type);
-        });
+        // This would use the same cached delegate approach as WorldSnapshot
+        // For now, using a simplified approach
+        
+        // Use reflection to copy components generically
+        var copyMethod = typeof(World).GetMethod(nameof(CopyComponentGeneric), 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
+            .MakeGenericMethod(componentType);
             
         copyMethod?.Invoke(this, new object[] { sourceChunk, targetChunk, sourceRow, targetRow });
     }
