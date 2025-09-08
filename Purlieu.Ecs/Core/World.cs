@@ -825,7 +825,11 @@ public sealed class World : IDisposable
         foreach (var kvp in _eventChannels)
         {
             var eventType = kvp.Key;
-            if (ComponentRegistry.IsOneFrame(eventType))
+            // Check if the event type has the OneFrame attribute directly
+            bool isOneFrame = ComponentRegistry.IsOneFrame(eventType) || 
+                             eventType.GetCustomAttributes(typeof(Components.OneFrameAttribute), false).Length > 0;
+            
+            if (isOneFrame)
             {
                 // Use dynamic dispatch since we have type-erased channels
                 if (kvp.Value is IEventChannel channel)
@@ -988,16 +992,10 @@ public sealed class World : IDisposable
     private void TransferNonOneFrameComponents(Entity entity, Archetype fromArchetype, Archetype toArchetype, 
                                              int oldRow, List<Type> oneFrameTypes)
     {
-        ref var record = ref GetRecord(entity);
-        
-        // Add entity to target archetype
+        // Add entity to target archetype first
         var localRow = toArchetype.AddEntity(entity);
         
-        // Update entity record  
-        record.ArchetypeId = toArchetype.Id;
-        record.Row = localRow;
-        
-        // Copy components that are not one-frame
+        // Copy components that are not one-frame BEFORE removing from source
         var sourceChunks = fromArchetype.GetChunks();
         var targetChunks = toArchetype.GetChunks();
         
@@ -1012,14 +1010,19 @@ public sealed class World : IDisposable
             var sourceRow = oldRow % ChunkCapacity;
             
             // Copy each component that's not a one-frame component
-            foreach (var componentType in toArchetype.ComponentTypes)
+            foreach (var componentType in fromArchetype.ComponentTypes)
             {
-                if (!oneFrameTypes.Contains(componentType))
+                if (!oneFrameTypes.Contains(componentType) && toArchetype.ComponentTypes.Contains(componentType))
                 {
                     CopyComponentBetweenChunks(sourceChunk, targetChunk, componentType, sourceRow, targetRowInChunk);
                 }
             }
         }
+        
+        // Update entity record AFTER copying components
+        ref var record = ref GetRecord(entity);
+        record.ArchetypeId = toArchetype.Id;
+        record.Row = localRow;
         
         // Remove from source archetype (this handles entity swapping)
         if (fromArchetype.Id != toArchetype.Id)
@@ -1044,15 +1047,22 @@ public sealed class World : IDisposable
         // This would use the same cached delegate approach as WorldSnapshot
         // For now, using a simplified approach
         
-        if (componentType == typeof(float))
-        {
-            targetChunk.GetSpan<float>()[targetRow] = sourceChunk.GetSpan<float>()[sourceRow];
-        }
-        else if (componentType == typeof(int))
-        {
-            targetChunk.GetSpan<int>()[targetRow] = sourceChunk.GetSpan<int>()[sourceRow];
-        }
-        // Add more common types as needed, or implement generic reflection-based copying
+        // Use reflection to copy components generically
+        var copyMethod = typeof(World).GetMethod(nameof(CopyComponentGeneric), 
+            System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance)?
+            .MakeGenericMethod(componentType);
+            
+        copyMethod?.Invoke(this, new object[] { sourceChunk, targetChunk, sourceRow, targetRow });
+    }
+    
+    /// <summary>
+    /// Generic method to copy a component between chunks.
+    /// </summary>
+    private void CopyComponentGeneric<T>(Chunk sourceChunk, Chunk targetChunk, int sourceRow, int targetRow) where T : unmanaged
+    {
+        var sourceSpan = sourceChunk.GetSpan<T>();
+        var targetSpan = targetChunk.GetSpan<T>();
+        targetSpan[targetRow] = sourceSpan[sourceRow];
     }
     
     /// <summary>

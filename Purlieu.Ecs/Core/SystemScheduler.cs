@@ -328,17 +328,23 @@ public sealed class SystemScheduler
     private bool AreSystemDependenciesSatisfied(Type systemType, SystemDependencies dependencies, HashSet<Type> processedSystems)
     {
         // Check RunAfter dependencies
-        foreach (var dependency in dependencies.RunAfter)
+        if (dependencies.RunAfter != null)
         {
-            if (!processedSystems.Contains(dependency))
-                return false;
+            foreach (var dependency in dependencies.RunAfter)
+            {
+                if (!processedSystems.Contains(dependency))
+                    return false;
+            }
         }
         
         // Check RunBefore dependencies (systems that must run after this one shouldn't be processed yet)
-        foreach (var dependent in dependencies.RunBefore)
+        if (dependencies.RunBefore != null)
         {
-            if (processedSystems.Contains(dependent))
-                return false;
+            foreach (var dependent in dependencies.RunBefore)
+            {
+                if (processedSystems.Contains(dependent))
+                    return false;
+            }
         }
         
         return true;
