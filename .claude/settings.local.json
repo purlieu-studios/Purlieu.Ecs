@@ -50,7 +50,11 @@
       "Bash(verbosity=minimal)",
       "Bash(verbosity=quiet)",
       "Bash(git revert:*)",
-      "Bash(del nul)"
+      "Bash(del nul)",
+      "Bash(git tag:*)",
+      "Bash(del /s /q BenchmarkDotNet.Artifacts)",
+      "Bash(del /s /q node_modules)",
+      "Bash(del package.json package-lock.json claude-ecsmind-loop.mjs)"
     ],
     "deny": [],
     "ask": []

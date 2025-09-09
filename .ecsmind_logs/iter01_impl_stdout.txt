@@ -1,1 +1,0 @@
-﻿These 6 implementation steps address critical performance bottlenecks and add essential features while maintaining ECS principles of stateless systems and struct-only components.

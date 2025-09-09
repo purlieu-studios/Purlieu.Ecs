@@ -1,1 +1,0 @@
-﻿error: unknown option '--no-color'
