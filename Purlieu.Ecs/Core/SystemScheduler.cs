@@ -13,9 +13,10 @@ namespace PurlieuEcs.Core;
 public sealed class SystemScheduler
 {
     private readonly Dictionary<SystemPhase, List<SystemExecutionGroup>> _phaseGroups;
-    private readonly Dictionary<object, ISystem> _systemInstances; // Use object key to support multiple instances
+    private readonly ConcurrentDictionary<object, ISystem> _systemInstances; // Thread-safe dictionary for concurrent operations
     private readonly IEcsLogger _logger;
     private readonly IEcsHealthMonitor _healthMonitor;
+    private readonly ReaderWriterLockSlim _schedulerLock = new(LockRecursionPolicy.NoRecursion);
     
     /// <summary>
     /// System execution group for parallel or sequential execution
@@ -37,7 +38,7 @@ public sealed class SystemScheduler
     public SystemScheduler(IEcsLogger? logger = null, IEcsHealthMonitor? healthMonitor = null)
     {
         _phaseGroups = new Dictionary<SystemPhase, List<SystemExecutionGroup>>();
-        _systemInstances = new Dictionary<object, ISystem>();
+        _systemInstances = new ConcurrentDictionary<object, ISystem>();
         _logger = logger ?? NullEcsLogger.Instance;
         _healthMonitor = healthMonitor ?? NullEcsHealthMonitor.Instance;
         
@@ -55,19 +56,25 @@ public sealed class SystemScheduler
     {
         ArgumentNullException.ThrowIfNull(system);
         
-        // Use the system instance itself as the key to support multiple instances of the same type
-        if (_systemInstances.ContainsKey(system))
+        // Thread-safe registration
+        if (!_systemInstances.TryAdd(system, system))
         {
             _logger.LogEntityOperation(LogLevel.Warning, EcsOperation.SystemExecute, 0, details: $"System instance already registered");
             return;
         }
         
-        _systemInstances[system] = system;
-        
         _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Registered system: {system.GetType().Name}");
         
-        // Rebuild execution groups when systems are added
-        RebuildExecutionGroups();
+        // Rebuild execution groups with lock
+        _schedulerLock.EnterWriteLock();
+        try
+        {
+            RebuildExecutionGroups();
+        }
+        finally
+        {
+            _schedulerLock.ExitWriteLock();
+        }
     }
     
     /// <summary>
@@ -81,12 +88,21 @@ public sealed class SystemScheduler
         var functionSystem = new FunctionSystem(function, dependencies);
         var systemName = name ?? $"Function_{_systemInstances.Count}";
         
-        // Use the function system instance as the key
-        _systemInstances[functionSystem] = functionSystem;
+        // Thread-safe registration
+        _systemInstances.TryAdd(functionSystem, functionSystem);
         
         _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Registered function system: {systemName}");
         
-        RebuildExecutionGroups();
+        // Rebuild execution groups with lock
+        _schedulerLock.EnterWriteLock();
+        try
+        {
+            RebuildExecutionGroups();
+        }
+        finally
+        {
+            _schedulerLock.ExitWriteLock();
+        }
     }
     
     /// <summary>
@@ -99,13 +115,22 @@ public sealed class SystemScheduler
         
         foreach (var key in systemsToRemove)
         {
-            _systemInstances.Remove(key);
+            _systemInstances.TryRemove(key, out _);
         }
         
         if (systemsToRemove.Count > 0)
         {
             _logger.LogEntityOperation(LogLevel.Debug, EcsOperation.SystemExecute, 0, details: $"Unregistered {systemsToRemove.Count} instance(s) of system: {systemType.Name}");
-            RebuildExecutionGroups();
+            
+            _schedulerLock.EnterWriteLock();
+            try
+            {
+                RebuildExecutionGroups();
+            }
+            finally
+            {
+                _schedulerLock.ExitWriteLock();
+            }
         }
     }
     
@@ -114,14 +139,26 @@ public sealed class SystemScheduler
     /// </summary>
     public void ExecutePhase(SystemPhase phase, World world, float deltaTime)
     {
-        if (!_phaseGroups.TryGetValue(phase, out var groups))
-            return;
+        _schedulerLock.EnterReadLock();
+        List<SystemExecutionGroup> groupsCopy;
+        try
+        {
+            if (!_phaseGroups.TryGetValue(phase, out var groups))
+                return;
+            
+            // Make a copy to avoid collection modification during iteration
+            groupsCopy = new List<SystemExecutionGroup>(groups);
+        }
+        finally
+        {
+            _schedulerLock.ExitReadLock();
+        }
         
         var stopwatch = Stopwatch.StartNew();
         
         try
         {
-            foreach (var group in groups)
+            foreach (var group in groupsCopy)
             {
                 ExecuteGroup(group, world, deltaTime);
             }
@@ -241,8 +278,8 @@ public sealed class SystemScheduler
             systemsByPhase[phase] = new List<(ISystem, Type, SystemExecutionAttribute?)>();
         }
         
-        // Categorize systems by phase
-        foreach (var (_, system) in _systemInstances)
+        // Categorize systems by phase - use ToList() to avoid modification during iteration
+        foreach (var (_, system) in _systemInstances.ToList())
         {
             var systemType = system.GetType();
             var executionAttribute = systemType.GetCustomAttribute<SystemExecutionAttribute>();

@@ -465,25 +465,25 @@ public sealed class World : IDisposable
                 ref var record = ref GetRecord(entity);
                 var currentArchetype = _idToArchetype[record.ArchetypeId];
             
-            // Check if entity already has the component
-            if (currentArchetype.Signature.Has<T>())
-                return;
-            
-            var newSignature = currentArchetype.Signature.Add<T>();
-            
-            // Create new component types array without LINQ allocations
-            var oldTypes = currentArchetype.ComponentTypes;
-            var newComponentTypes = new Type[oldTypes.Count + 1];
-            for (int i = 0; i < oldTypes.Count; i++)
-            {
-                newComponentTypes[i] = oldTypes[i];
-            }
-            newComponentTypes[oldTypes.Count] = typeof(T);
-            
-            var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
-            
-            // Move entity to new archetype
-            MoveEntityToArchetype(entity, currentArchetype, newArchetype, component);
+                // Check if entity already has the component
+                if (currentArchetype.Signature.Has<T>())
+                    return;
+                
+                var newSignature = currentArchetype.Signature.Add<T>();
+                
+                // Create new component types array without LINQ allocations
+                var oldTypes = currentArchetype.ComponentTypes;
+                var newComponentTypes = new Type[oldTypes.Count + 1];
+                for (int i = 0; i < oldTypes.Count; i++)
+                {
+                    newComponentTypes[i] = oldTypes[i];
+                }
+                newComponentTypes[oldTypes.Count] = typeof(T);
+                
+                var newArchetype = GetOrCreateArchetype(newSignature, newComponentTypes);
+                
+                // Move entity to new archetype
+                MoveEntityToArchetype(entity, currentArchetype, newArchetype, component);
             }
             finally
             {

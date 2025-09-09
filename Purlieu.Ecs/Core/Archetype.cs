@@ -16,6 +16,7 @@ public sealed class Archetype
     private readonly List<Chunk> _chunks;
     private readonly int _chunkCapacity;
     private readonly ArchetypeBloomFilter _bloomFilter;
+    private readonly object _chunkLock = new object(); // Thread safety for chunk operations
     
     public ulong Id => _id;
     public ArchetypeSignature Signature => _signature;
@@ -71,30 +72,33 @@ public sealed class Archetype
             return 0; // Row doesn't matter for empty archetype
         }
         
-        // Find chunk with space
-        Chunk? targetChunk = null;
-        int chunkIndex = 0;
-        for (int i = 0; i < _chunks.Count; i++)
+        lock (_chunkLock)
         {
-            if (_chunks[i].Count < _chunkCapacity)
+            // Find chunk with space
+            Chunk? targetChunk = null;
+            int chunkIndex = 0;
+            for (int i = 0; i < _chunks.Count; i++)
             {
-                targetChunk = _chunks[i];
-                chunkIndex = i;
-                break;
+                if (_chunks[i].Count < _chunkCapacity)
+                {
+                    targetChunk = _chunks[i];
+                    chunkIndex = i;
+                    break;
+                }
             }
+            
+            // Create new chunk if needed
+            if (targetChunk == null)
+            {
+                targetChunk = new Chunk(_componentTypes, _chunkCapacity);
+                _chunks.Add(targetChunk);
+                chunkIndex = _chunks.Count - 1;
+            }
+            
+            var localRow = targetChunk.AddEntity(entity);
+            // Return global row index (chunk index * capacity + local row)
+            return chunkIndex * _chunkCapacity + localRow;
         }
-        
-        // Create new chunk if needed
-        if (targetChunk == null)
-        {
-            targetChunk = new Chunk(_componentTypes, _chunkCapacity);
-            _chunks.Add(targetChunk);
-            chunkIndex = _chunks.Count - 1;
-        }
-        
-        var localRow = targetChunk.AddEntity(entity);
-        // Return global row index (chunk index * capacity + local row)
-        return chunkIndex * _chunkCapacity + localRow;
     }
     
     /// <summary>
@@ -108,16 +112,19 @@ public sealed class Archetype
             return Entity.Invalid;
         }
         
-        // Find chunk containing this row
-        int chunkIndex = row / _chunkCapacity;
-        int localRow = row % _chunkCapacity;
-        
-        if (chunkIndex < _chunks.Count)
+        lock (_chunkLock)
         {
-            return _chunks[chunkIndex].RemoveEntity(localRow);
+            // Find chunk containing this row
+            int chunkIndex = row / _chunkCapacity;
+            int localRow = row % _chunkCapacity;
+            
+            if (chunkIndex < _chunks.Count)
+            {
+                return _chunks[chunkIndex].RemoveEntity(localRow);
+            }
+            
+            return Entity.Invalid;
         }
-        
-        return Entity.Invalid;
     }
     
     /// <summary>
@@ -125,7 +132,11 @@ public sealed class Archetype
     /// </summary>
     public List<Chunk> GetChunks()
     {
-        return _chunks;
+        lock (_chunkLock)
+        {
+            // Return a copy to prevent concurrent modification
+            return new List<Chunk>(_chunks);
+        }
     }
     
     /// <summary>

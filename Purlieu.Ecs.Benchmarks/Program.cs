@@ -6,6 +6,14 @@ class Program
 {
     static void Main(string[] args)
     {
-        BenchmarkRunner.Run<BENCH_EntityCreation>();
+        // Quick validation mode
+        if (args.Length > 0 && args[0] == "--quick")
+        {
+            QuickValidation.Run();
+            return;
+        }
+        
+        // Full benchmark mode
+        BenchmarkSwitcher.FromAssembly(typeof(Program).Assembly).Run(args);
     }
 }
